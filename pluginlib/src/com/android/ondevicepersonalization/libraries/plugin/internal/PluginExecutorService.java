@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.android.ondevicepersonalization.libraries.plugin.impl;
+package com.android.ondevicepersonalization.libraries.plugin.internal;
 
 import android.app.Service;
 import android.content.Context;
@@ -31,13 +31,6 @@ import com.android.ondevicepersonalization.libraries.plugin.PluginApplication;
 import com.android.ondevicepersonalization.libraries.plugin.PluginCallback;
 import com.android.ondevicepersonalization.libraries.plugin.PluginHost;
 import com.android.ondevicepersonalization.libraries.plugin.PluginState;
-import com.android.ondevicepersonalization.libraries.plugin.internal.CallbackConverter;
-import com.android.ondevicepersonalization.libraries.plugin.internal.IPluginCallback;
-import com.android.ondevicepersonalization.libraries.plugin.internal.IPluginExecutorService;
-import com.android.ondevicepersonalization.libraries.plugin.internal.IPluginStateCallback;
-import com.android.ondevicepersonalization.libraries.plugin.internal.PluginExecutor;
-import com.android.ondevicepersonalization.libraries.plugin.internal.PluginInfoInternal;
-import com.android.ondevicepersonalization.libraries.plugin.internal.PluginLoaderImpl;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -55,6 +48,7 @@ public class PluginExecutorService extends Service {
         super.onCreate();
         Context applicationContext = getApplicationContext();
         if (applicationContext == null) {
+            Log.e(TAG, "PluginExecutorService.onCreate() got null application context");
             return;
         }
         mPluginExecutor = PluginExecutor.create(applicationContext, new PluginLoaderImpl());
@@ -63,6 +57,11 @@ public class PluginExecutorService extends Service {
         // {@link PluginApplication}'s purpose is to supply an optional {@link PluginHost}
         // implementation.
         if (!(applicationContext instanceof PluginApplication)) {
+            Log.e(
+                    TAG,
+                    String.format(
+                            "PluginExecutorService.onCreate() application context not instance of"
+                                    + " PluginApplication"));
             return;
         }
         mPluginApplication = (PluginApplication) applicationContext;
@@ -93,7 +92,7 @@ public class PluginExecutorService extends Service {
                     try {
                         pluginCallback.onFailure(FailureType.ERROR_LOADING_PLUGIN);
                     } catch (RemoteException e2) {
-                        Log.w(TAG, "Callback failed.");
+                        Log.e(TAG, "load() failed to call pluginCallback.onFailure()");
                     }
                 }
             }
@@ -112,7 +111,7 @@ public class PluginExecutorService extends Service {
                     try {
                         pluginCallback.onFailure(FailureType.ERROR_EXECUTING_PLUGIN);
                     } catch (RemoteException e2) {
-                        Log.w(TAG, "Callback failed.");
+                        Log.e(TAG, "execute() failed to call pluginCallback.onFailure()");
                     }
                 }
             }
@@ -127,7 +126,7 @@ public class PluginExecutorService extends Service {
                     try {
                         pluginCallback.onFailure(FailureType.ERROR_UNLOADING_PLUGIN);
                     } catch (RemoteException e2) {
-                        Log.w(TAG, "Callback failed.");
+                        Log.e(TAG, "unload() failed to call pluginCallback.onFailure()");
                     }
                 }
             }
@@ -140,7 +139,7 @@ public class PluginExecutorService extends Service {
                     try {
                         stateCallback.onState(PluginState.STATE_EXCEPTION_THROWN);
                     } catch (RemoteException e2) {
-                        Log.w(TAG, "Callback failed.");
+                        Log.e(TAG, "checkPluginState() failed to call stateCallback.onState()");
                     }
                 }
             }

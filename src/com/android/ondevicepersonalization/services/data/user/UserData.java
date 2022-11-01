@@ -32,4 +32,15 @@ public final class UserData {
 
     // The device orientation.
     public int orientation = Configuration.ORIENTATION_PORTRAIT;
+
+    // Available bytes in MB.
+    public int availableBytesMB = 0;
+
+    // Battery percentage.
+    public int batteryPct = 0;
+    // The 3-letter ISO-3166 country code
+    public Country country = Country.UNKNOWN;
+
+    // The 2-letter ISO-639 language code
+    public Language language = Language.UNKNOWN;
 }

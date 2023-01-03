@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-package com.android.ondevicepersonalization.services.plugin;
+package com.android.ondevicepersonalization.services.process;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.ondevicepersonalization.Constants;
 import android.ondevicepersonalization.OnDevicePersonalizationException;
+import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.util.Log;
 
@@ -37,14 +38,15 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.util.Objects;
 
 /** Utilities to support loading and executing plugins. */
-public class PluginUtils {
-    private static final String TAG = "PluginUtils";
+public class ProcessUtils {
+    private static final String TAG = "ProcessUtils";
     private static final String ENTRY_POINT_CLASS =
-            "com.android.ondevicepersonalization.services.plugin.OnDevicePersonalizationPlugin";
+            "com.android.ondevicepersonalization.services.process.OnDevicePersonalizationPlugin";
 
     public static final String PARAM_CLASS_NAME_KEY = "param.classname";
     public static final String PARAM_OPERATION_KEY = "param.operation";
 
+    public static final String INPUT_PARCEL_FD = "parcel_fd";
     public static final String OUTPUT_RESULT_KEY = "result";
 
     public static final int OP_DOWNLOAD_FILTER_HANDLER = 1;
@@ -86,7 +88,7 @@ public class PluginUtils {
 
     /** Executes the plugin entry point. */
     @NonNull public static ListenableFuture<PersistableBundle> executePlugin(
-            @NonNull PluginController pluginController, @NonNull PersistableBundle pluginParams) {
+            @NonNull PluginController pluginController, @NonNull Bundle pluginParams) {
         return CallbackToFutureAdapter.getFuture(
             completer -> {
                 try {
@@ -147,5 +149,5 @@ public class PluginUtils {
         return pluginId.split("-")[0];
     }
 
-    private PluginUtils() {}
+    private ProcessUtils() {}
 }

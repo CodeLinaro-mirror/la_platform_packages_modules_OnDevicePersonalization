@@ -64,7 +64,7 @@ public abstract class PersonalizationService extends Service {
      */
     public interface DownloadCallback {
         /** Retains the provided keys */
-        void onSuccess(List<String> keysToRetain);
+        void onSuccess(DownloadResult downloadResult);
 
         /** Error in download processing. The platform will retry the download. */
         void onError();
@@ -160,8 +160,8 @@ public abstract class PersonalizationService extends Service {
                 PersistableBundle appParams =
                         (PersistableBundle) params.getParcelable(Constants.EXTRA_APP_PARAMS);
                 IDataAccessService binder =
-                        (IDataAccessService) Objects.requireNonNull(
-                                params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER));
+                        IDataAccessService.Stub.asInterface(Objects.requireNonNull(
+                            params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 OnDevicePersonalizationContext odpContext =
                         new OnDevicePersonalizationContextImpl(binder);
                 var wrappedCallback = new AppRequestCallback() {
@@ -190,15 +190,15 @@ public abstract class PersonalizationService extends Service {
 
                 ParcelFileDescriptor fd = Objects.requireNonNull(
                         params.getParcelable(Constants.EXTRA_PARCEL_FD));
-                IDataAccessService binder = (IDataAccessService) Objects.requireNonNull(
-                        params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER));
+                IDataAccessService binder =
+                        IDataAccessService.Stub.asInterface(Objects.requireNonNull(
+                            params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 OnDevicePersonalizationContext odpContext =
                         new OnDevicePersonalizationContextImpl(binder);
                 var wrappedCallback = new DownloadCallback() {
-                    @Override public void onSuccess(List<String> keysToRetain) {
+                    @Override public void onSuccess(DownloadResult result) {
                         Bundle bundle = new Bundle();
-                        bundle.putStringArray(Constants.EXTRA_RESULT,
-                                keysToRetain.toArray(new String[0]));
+                        bundle.putParcelable(Constants.EXTRA_RESULT, result);
                         try {
                             callback.onSuccess(bundle);
                         } catch (RemoteException e) {
@@ -223,8 +223,9 @@ public abstract class PersonalizationService extends Service {
                         params.getParcelable(Constants.EXTRA_SLOT_INFO));
                 List<String> bidIds = Arrays.asList(Objects.requireNonNull(
                         params.getStringArray(Constants.EXTRA_BID_IDS)));
-                IDataAccessService binder = (IDataAccessService) Objects.requireNonNull(
-                        params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER));
+                IDataAccessService binder =
+                        IDataAccessService.Stub.asInterface(Objects.requireNonNull(
+                            params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 OnDevicePersonalizationContext odpContext =
                         new OnDevicePersonalizationContextImpl(binder);
                 var wrappedCallback = new RenderContentCallback() {

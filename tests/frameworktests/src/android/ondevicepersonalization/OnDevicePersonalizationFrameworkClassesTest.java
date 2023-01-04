@@ -120,27 +120,6 @@ public class OnDevicePersonalizationFrameworkClassesTest {
     }
 
     /**
-     * Tests that the ExchangeResult object serializes correctly.
-     */
-    @Test
-    public void testExchangeResult() {
-        ExchangeResult result =
-                new ExchangeResult.Builder()
-                        .setKey("key1")
-                        .setResponse("content")
-                        .build();
-
-        Parcel parcel = Parcel.obtain();
-        result.writeToParcel(parcel, 0);
-        parcel.setDataPosition(0);
-        ExchangeResult result2 = ExchangeResult.CREATOR.createFromParcel(parcel);
-
-        assertEquals(result, result2);
-        assertEquals("key1", result2.getKey());
-        assertEquals("content", result2.getResponse());
-    }
-
-    /**
      * Tests that the AppRequestResult object serializes correctly.
      */
     @Test
@@ -211,5 +190,23 @@ public class OnDevicePersonalizationFrameworkClassesTest {
 
         assertEquals(result, result2);
         assertEquals("abc", result2.getContent());
+    }
+
+    /**
+     * Tests that the DownloadResult object serializes correctly.
+     */
+    @Test
+    public void teetDownloadResult() {
+        DownloadResult result = new DownloadResult.Builder()
+                .addKeysToRetain("abc").addKeysToRetain("def").build();
+
+        Parcel parcel = Parcel.obtain();
+        result.writeToParcel(parcel, 0);
+        parcel.setDataPosition(0);
+        DownloadResult result2 = DownloadResult.CREATOR.createFromParcel(parcel);
+
+        assertEquals(result, result2);
+        assertEquals("abc", result2.getKeysToRetain().get(0));
+        assertEquals("def", result2.getKeysToRetain().get(1));
     }
 }

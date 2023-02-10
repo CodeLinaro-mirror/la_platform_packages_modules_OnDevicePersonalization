@@ -16,14 +16,21 @@
 
 package com.test;
 
+import android.annotation.NonNull;
+import android.ondevicepersonalization.AppRequestInput;
+import android.ondevicepersonalization.AppRequestResult;
+import android.ondevicepersonalization.DownloadInput;
+import android.ondevicepersonalization.DownloadResult;
 import android.ondevicepersonalization.OnDevicePersonalizationContext;
 import android.ondevicepersonalization.PersonalizationService;
+import android.ondevicepersonalization.RenderContentInput;
+import android.ondevicepersonalization.RenderContentResult;
+import android.ondevicepersonalization.ScoredBid;
+import android.ondevicepersonalization.SlotResult;
 import android.os.OutcomeReceiver;
 import android.os.ParcelFileDescriptor;
 import android.util.JsonReader;
 import android.util.Log;
-
-import androidx.annotation.NonNull;
 
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -38,8 +45,8 @@ public class TestPersonalizationService extends PersonalizationService {
     public final String TAG = "TestPersonalizationService";
 
     @Override
-    public void onDownload(ParcelFileDescriptor fd, OnDevicePersonalizationContext odpContext,
-            PersonalizationService.DownloadCallback callback) {
+    public void onDownload(DownloadInput input, OnDevicePersonalizationContext odpContext,
+            PersonalizationService.Callback<DownloadResult> callback) {
         Log.d(TAG, "Starting filterData.");
         List<String> lookupKeys = new ArrayList<>();
         lookupKeys.add("keyExtra");
@@ -49,7 +56,11 @@ public class TestPersonalizationService extends PersonalizationService {
                     public void onResult(@NonNull Map<String, byte[]> result) {
                         Log.d(TAG, "OutcomeReceiver onResult: " + result);
                         // Get the keys to keep from the downloaded data
-                        callback.onSuccess(getFilteredKeys(fd));
+                        DownloadResult downloadResult =
+                                new DownloadResult.Builder()
+                                .setKeysToRetain(getFilteredKeys(input.getParcelFileDescriptor()))
+                                .build();
+                        callback.onResult(downloadResult);
                     }
 
                     @Override
@@ -58,6 +69,36 @@ public class TestPersonalizationService extends PersonalizationService {
                         callback.onError();
                     }
                 });
+    }
+
+    @Override public void onAppRequest(
+            @NonNull AppRequestInput input,
+            @NonNull OnDevicePersonalizationContext odpContext,
+            @NonNull PersonalizationService.Callback<AppRequestResult> callback
+    ) {
+        Log.d(TAG, "onAppRequest() started.");
+        AppRequestResult result = new AppRequestResult.Builder()
+                .addSlotResults(new SlotResult.Builder()
+                        .setSlotId("slot_id")
+                        .addWinningBids(
+                            new ScoredBid.Builder()
+                            .setBidId("bid1").setPrice(5.0).setScore(1.0).build())
+                        .build())
+                .build();
+        callback.onResult(result);
+    }
+
+    @Override public void renderContent(
+            @NonNull RenderContentInput input,
+            @NonNull OnDevicePersonalizationContext odpContext,
+            @NonNull PersonalizationService.Callback<RenderContentResult> callback
+    ) {
+        Log.d(TAG, "renderContent() started.");
+        RenderContentResult result =
+                new RenderContentResult.Builder()
+                .setContent("<p>RenderResult: " + String.join(",", input.getBidIds()) + "<p>")
+                .build();
+        callback.onResult(result);
     }
 
     private List<String> getFilteredKeys(ParcelFileDescriptor fd) {

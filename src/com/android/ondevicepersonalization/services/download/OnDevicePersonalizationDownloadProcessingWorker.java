@@ -32,8 +32,6 @@ import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 import androidx.work.WorkerParameters;
 
-import com.android.ondevicepersonalization.libraries.plugin.PluginManager;
-import com.android.ondevicepersonalization.libraries.plugin.impl.PluginManagerImpl;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
 
@@ -42,7 +40,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Worker to handle the processing of the downloaded vendor data
@@ -52,7 +49,6 @@ public class OnDevicePersonalizationDownloadProcessingWorker extends ListenableW
     private final PackageManager mPackageManager;
     private final Context mContext;
     private List<ListenableFuture<Void>> mFutures;
-    private final PluginManager mPluginManager;
 
     public OnDevicePersonalizationDownloadProcessingWorker(
             Context context,
@@ -60,8 +56,6 @@ public class OnDevicePersonalizationDownloadProcessingWorker extends ListenableW
         super(context, params);
         this.mContext = context;
         this.mPackageManager = context.getPackageManager();
-        mPluginManager = new PluginManagerImpl(
-                Objects.requireNonNull(context));
     }
 
     /**
@@ -94,10 +88,12 @@ public class OnDevicePersonalizationDownloadProcessingWorker extends ListenableW
             if (isStopped()) {
                 break;
             }
-            if (AppManifestConfigHelper.manifestContainsOdpSettings(mContext, packageInfo)) {
+            String packageName = packageInfo.packageName;
+            if (AppManifestConfigHelper.manifestContainsOdpSettings(
+                    mContext, packageName)) {
                 mFutures.add(Futures.submitAsync(
-                        new OnDevicePersonalizationDataProcessingAsyncCallable(packageInfo,
-                                mContext, mPluginManager),
+                        new OnDevicePersonalizationDataProcessingAsyncCallable(packageName,
+                                mContext),
                         OnDevicePersonalizationExecutors.getBackgroundExecutor()));
             }
         }
@@ -110,12 +106,5 @@ public class OnDevicePersonalizationDownloadProcessingWorker extends ListenableW
         for (ListenableFuture<Void> f : mFutures) {
             f.cancel(true);
         }
-    }
-
-    private boolean manifestContainsOdpDownloadSettings(PackageInfo packageInfo) {
-        // TODO(b/239479120): Implement this method
-        Log.d(TAG, "Checking manifestContainsOdpDownloadSettings for "
-                + packageInfo.packageName);
-        return false;
     }
 }

@@ -18,19 +18,19 @@ package com.android.ondevicepersonalization.services.request;
 
 import android.annotation.NonNull;
 import android.content.Context;
-import android.ondevicepersonalization.AppRequestInput;
-import android.ondevicepersonalization.AppRequestResult;
 import android.ondevicepersonalization.Constants;
+import android.ondevicepersonalization.OnDevicePersonalizationManager;
 import android.ondevicepersonalization.RenderContentInput;
 import android.ondevicepersonalization.RenderContentResult;
 import android.ondevicepersonalization.ScoredBid;
+import android.ondevicepersonalization.SelectContentInput;
+import android.ondevicepersonalization.SelectContentResult;
 import android.ondevicepersonalization.SlotInfo;
 import android.ondevicepersonalization.SlotResult;
 import android.ondevicepersonalization.aidl.IRequestSurfacePackageCallback;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PersistableBundle;
-import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.SurfaceControlViewHost.SurfacePackage;
@@ -131,7 +131,7 @@ public class AppRequestFlow {
             mServiceClassName = Objects.requireNonNull(
                     AppManifestConfigHelper.getServiceNameFromOdpSettings(
                             mContext, mServicePackageName));
-            ListenableFuture<AppRequestResult> resultFuture = FluentFuture.from(
+            ListenableFuture<SelectContentResult> resultFuture = FluentFuture.from(
                             ProcessUtils.loadIsolatedService(
                                     TASK_NAME, mServicePackageName, mContext))
                     .transformAsync(
@@ -141,12 +141,12 @@ public class AppRequestFlow {
                     .transform(
                             result -> {
                                 return result.getParcelable(
-                                        Constants.EXTRA_RESULT, AppRequestResult.class);
+                                        Constants.EXTRA_RESULT, SelectContentResult.class);
                             },
                             mExecutorService
                     );
 
-            ListenableFuture<QueryId> queryIdFuture = FluentFuture.from(resultFuture)
+            ListenableFuture<Long> queryIdFuture = FluentFuture.from(resultFuture)
                     .transformAsync(input -> logQuery(input), mExecutorService);
 
             ListenableFuture<List<SurfacePackage>> surfacePackagesFuture =
@@ -187,44 +187,53 @@ public class AppRequestFlow {
     private ListenableFuture<Bundle> executeAppRequest(IsolatedServiceInfo isolatedServiceInfo) {
         Log.d(TAG, "executeAppRequest() started.");
         Bundle serviceParams = new Bundle();
-        AppRequestInput input =
-                new AppRequestInput.Builder()
+        ArrayList<SlotInfo> slotInfos = new ArrayList<>();
+        for (SurfaceInfo surfaceInfo : mSurfaceInfos) {
+            slotInfos.add(
+                    new SlotInfo.Builder()
+                            .setWidth(surfaceInfo.mWidth)
+                            .setHeight(surfaceInfo.mHeight)
+                            .build());
+        }
+        PersistableBundle appParams = mParams.getParcelable(
+                OnDevicePersonalizationManager.EXTRA_APP_PARAMS, PersistableBundle.class);
+        SelectContentInput input =
+                new SelectContentInput.Builder()
                         .setAppPackageName(mCallingPackageName)
-                        // TODO(b/228200518): Extract app_params from request
-                        .setAppParams(PersistableBundle.EMPTY)
+                        .setSlotInfos(slotInfos)
+                        .setAppParams(appParams)
                         .build();
-        // TODO(b/228200518): Extract app_params from request
         serviceParams.putParcelable(Constants.EXTRA_INPUT, input);
         DataAccessServiceImpl binder = new DataAccessServiceImpl(
-                mCallingPackageName, mServicePackageName, mContext, true);
+                mCallingPackageName, mServicePackageName, mContext, true, null);
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
         return ProcessUtils.runIsolatedService(
-                isolatedServiceInfo, mServiceClassName, Constants.OP_APP_REQUEST, serviceParams);
+                isolatedServiceInfo, mServiceClassName, Constants.OP_SELECT_CONTENT, serviceParams);
     }
 
-    private ListenableFuture<QueryId> logQuery(AppRequestResult appRequestResult) {
+    private ListenableFuture<Long> logQuery(SelectContentResult result) {
         Log.d(TAG, "logQuery() started.");
         // TODO(b/228200518): Validate that slotIds and bidIds are present in REMOTE_DATA.
         // TODO(b/228200518): Populate queryData
         byte[] queryData = new byte[1];
-        // TODO(b/228200518): Replace currentTimeMillis() with a higher precision timestamp.
-        QueryId queryId = new QueryId(System.currentTimeMillis() * 1000, Process.myTid());
         Query query = new Query.Builder()
                 .setQuery(queryData)
-                .setThreadId(queryId.mThreadId)
-                .setTimeUsec(queryId.mTimeUsec)
+                .setTimeMillis(System.currentTimeMillis())
                 .build();
-        EventsDao.getInstance(mContext).insertQuery(query);
+        long queryId = EventsDao.getInstance(mContext).insertQuery(query);
+        if (queryId == -1) {
+            return Futures.immediateFailedFuture(new RuntimeException("Failed to log query."));
+        }
         return Futures.immediateFuture(queryId);
     }
 
     private ListenableFuture<List<SurfacePackage>> renderContent(
-            AppRequestResult appRequestResult,
-            QueryId queryId) {
+            SelectContentResult selectContentResult,
+            long queryId) {
         Log.d(TAG, "renderContent() started.");
-        List<SlotResult> slotResults = appRequestResult.getSlotResults();
+        List<SlotResult> slotResults = selectContentResult.getSlotResults();
         if (slotResults == null) {
-            Log.w(TAG, "Missing input: appRequestResult.slotResults is null.");
+            Log.w(TAG, "Missing input: SelectContentResult.slotResults is null.");
             return Futures.immediateFuture(null);
         }
 
@@ -233,14 +242,14 @@ public class AppRequestFlow {
         for (int i = 0; i < Math.min(mSurfaceInfos.size(), slotResults.size()); ++i) {
             SurfaceInfo surfaceInfo = mSurfaceInfos.get(i);
             SlotResult slotResult = slotResults.get(i);
-            surfacePackageFutures.add(renderContentForSlot(surfaceInfo, slotResult));
+            surfacePackageFutures.add(renderContentForSlot(surfaceInfo, slotResult, queryId));
         }
 
         return Futures.allAsList(surfacePackageFutures);
     }
 
     private ListenableFuture<SurfacePackage> renderContentForSlot(
-            SurfaceInfo surfaceInfo, SlotResult slotResult
+            SurfaceInfo surfaceInfo, SlotResult slotResult, long queryId
     ) {
         Log.d(TAG, "renderContentForSlot() started.");
         if (surfaceInfo == null || slotResult == null) {
@@ -260,7 +269,7 @@ public class AppRequestFlow {
                         TASK_NAME, mServicePackageName, mContext))
                 .transformAsync(
                         loadResult -> executeRenderContentRequest(
-                                loadResult, slotInfo, bidIds),
+                                loadResult, slotInfo, slotResult, queryId, bidIds),
                         mExecutorService)
                 .transform(result -> {
                     return result.getParcelable(
@@ -278,14 +287,17 @@ public class AppRequestFlow {
     }
 
     private ListenableFuture<Bundle> executeRenderContentRequest(
-            IsolatedServiceInfo isolatedServiceInfo, SlotInfo slotInfo, List<String> bidIds) {
+            IsolatedServiceInfo isolatedServiceInfo, SlotInfo slotInfo, SlotResult slotResult,
+            long queryId, List<String> bidIds) {
         Log.d(TAG, "executeRenderContentRequest() started.");
         Bundle serviceParams = new Bundle();
         RenderContentInput input =
                 new RenderContentInput.Builder().setSlotInfo(slotInfo).setBidIds(bidIds).build();
         serviceParams.putParcelable(Constants.EXTRA_INPUT, input);
         DataAccessServiceImpl binder = new DataAccessServiceImpl(
-                mCallingPackageName, mServicePackageName, mContext, false);
+                mCallingPackageName, mServicePackageName, mContext, false,
+                new DataAccessServiceImpl.EventUrlQueryData(
+                    queryId, slotResult.getSlotId(), bidIds));
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
         // TODO(b/228200518): Create event handling URLs.
         return ProcessUtils.runIsolatedService(
@@ -313,16 +325,6 @@ public class AppRequestFlow {
             mCallback.onError(errorCode);
         } catch (RemoteException e) {
             Log.w(TAG, "Callback error", e);
-        }
-    }
-
-    static class QueryId {
-        public final long mTimeUsec;
-        public final long mThreadId;
-
-        QueryId(long timeUsec, long threadId) {
-            mTimeUsec = timeUsec;
-            mThreadId = threadId;
         }
     }
 

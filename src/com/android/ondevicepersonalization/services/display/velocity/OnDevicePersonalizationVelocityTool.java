@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 The Android Open Source Project
+ * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,6 +14,19 @@
  * limitations under the License.
  */
 
-package android.ondevicepersonalization.rtb;
+package com.android.ondevicepersonalization.services.display.velocity;
 
-parcelable Bid;
+/**
+ * Tool containing methods passed to the velocity engine
+ * to be used during rendering within the template
+ */
+public class OnDevicePersonalizationVelocityTool {
+    // TODO(b/263180569): Implement this class to include basic encoding/escaping methods.
+
+    /**
+     * Encode string for HTML context.
+     */
+    public static String encodeHtml(String s) {
+        return s;
+    }
+}

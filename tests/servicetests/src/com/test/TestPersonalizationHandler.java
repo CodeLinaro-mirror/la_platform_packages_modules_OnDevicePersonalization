@@ -103,17 +103,17 @@ public class TestPersonalizationHandler implements IsolatedComputationHandler {
             @NonNull OnDevicePersonalizationContext odpContext,
             @NonNull Consumer<EventOutput> consumer
     ) {
-        long longValue = 0;
+        int intValue = 0;
         double floatValue = 0.0;
-        if (input.getBid() != null && input.getBid().getMetrics() != null) {
-            longValue = input.getBid().getMetrics().getLongValues()[0];
-            floatValue = input.getBid().getMetrics().getDoubleValues()[0];
+        if (input.getEventParams() != null) {
+            intValue = input.getEventParams().getInt("a");
+            floatValue = input.getEventParams().getDouble("b");
         }
         EventOutput result =
                 new EventOutput.Builder()
                     .setMetrics(
                             new Metrics.Builder()
-                                .setLongValues(longValue)
+                                .setLongValues(intValue)
                                 .setDoubleValues(floatValue)
                                 .build())
                     .build();

@@ -50,14 +50,18 @@ public class EventUrlPayloadTest {
                 .setEventId(eventId)
                 .build();
 
+        boolean eventMetricsRequires = true;
+
         EventUrlPayload eventUrlPayload1 = new EventUrlPayload.Builder()
                 .setEvent(event)
+                .setEventMetricsRequired(eventMetricsRequires)
                 .build();
 
         assertEquals(eventUrlPayload1.getEvent(), event);
+        assertEquals(eventUrlPayload1.isEventMetricsRequired(), eventMetricsRequires);
 
         EventUrlPayload eventUrlPayload2 = new EventUrlPayload.Builder(
-                event).build();
+                event).setEventMetricsRequired(eventMetricsRequires).build();
         assertEquals(eventUrlPayload1, eventUrlPayload2);
         assertEquals(eventUrlPayload1.hashCode(), eventUrlPayload2.hashCode());
     }
@@ -87,8 +91,11 @@ public class EventUrlPayloadTest {
                 .setEventId(eventId)
                 .build();
 
+        boolean eventMetricsRequires = true;
+
         EventUrlPayload.Builder builder = new EventUrlPayload.Builder()
-                .setEvent(event);
+                .setEvent(event)
+                .setEventMetricsRequired(eventMetricsRequires);
         builder.build();
         assertThrows(IllegalStateException.class, () -> builder.build());
     }

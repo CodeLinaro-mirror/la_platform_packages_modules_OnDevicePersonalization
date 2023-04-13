@@ -27,6 +27,7 @@ import android.ondevicepersonalization.EventOutput;
 import android.ondevicepersonalization.Metrics;
 import android.ondevicepersonalization.SlotResult;
 import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.util.Log;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -73,7 +74,8 @@ class OdpWebViewClient extends WebViewClient {
 
     @NonNull private final Context mContext;
     @NonNull private final String mServicePackageName;
-    @NonNull private final HashMap<String, Bid> mBidsMap = new HashMap<>();
+    @NonNull private final HashMap<String, PersistableBundle> mEventParametersMap =
+            new HashMap<>();
     @NonNull private final Injector mInjector;
 
     OdpWebViewClient(Context context, String servicePackageName, SlotResult slotResult) {
@@ -86,7 +88,9 @@ class OdpWebViewClient extends WebViewClient {
         mContext = context;
         mServicePackageName = servicePackageName;
         for (Bid bid: slotResult.getWinningBids()) {
-            mBidsMap.put(bid.getBidId(), bid);
+            if (bid.getEventMetricsParameters() != null) {
+                mEventParametersMap.put(bid.getBidId(), bid.getEventMetricsParameters());
+            }
         }
         mInjector = injector;
     }
@@ -135,11 +139,11 @@ class OdpWebViewClient extends WebViewClient {
             DataAccessServiceImpl binder = new DataAccessServiceImpl(
                     mServicePackageName, mContext, true, null);
             serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
-            Bid bid = mBidsMap.get(payload.getEvent().getBidId());
+            PersistableBundle eventParams = mEventParametersMap.get(payload.getEvent().getBidId());
             // TODO(b/259950177): Add Query row to input.
             EventInput input = new EventInput.Builder()
                     .setEventType(payload.getEvent().getType())
-                    .setBid(bid)
+                    .setEventParams(eventParams)
                     .build();
             serviceParams.putParcelable(Constants.EXTRA_INPUT, input);
             return FluentFuture.from(
@@ -162,6 +166,11 @@ class OdpWebViewClient extends WebViewClient {
 
     ListenableFuture<EventOutput> getEventMetrics(EventUrlPayload payload) {
         try {
+            Log.d(TAG, "getEventMetrics() called");
+            if (!payload.isEventMetricsRequired()) {
+                return Futures.immediateFuture(new EventOutput.Builder().build());
+            }
+
             Log.d(TAG, "getEventMetrics(): Starting isolated process.");
             return FluentFuture.from(ProcessUtils.loadIsolatedService(
                     TASK_NAME, mServicePackageName, mContext))

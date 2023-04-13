@@ -189,6 +189,8 @@ public class SampleHandler implements IsolatedComputationHandler {
                                 .setBidId(ad.mId)
                                 .setPrice(ad.mPrice)
                                 .setScore(ad.mPrice * 10)
+                                .setEventsWithMetrics(EVENT_TYPE_CLICK)
+                                .setEventMetricsParameters(eventParams)
                                 .build())
                         .build())
                 .build();
@@ -335,8 +337,8 @@ public class SampleHandler implements IsolatedComputationHandler {
                 return;
             }
             double bidPrice = 0.0;
-            if (input.getBid() != null) {
-                bidPrice = input.getBid().getPrice();
+            if (input.getEventParams() != null) {
+                bidPrice = input.getEventParams().getDouble(BID_PRICE_KEY);
             }
             double updatedPrice = bidPrice * COST_RAISING_FACTOR;
             EventOutput result = new EventOutput.Builder()

@@ -43,7 +43,7 @@ java_library_static {
         "tensorflow_core_proto_java_lite",
     ],
     sdk_version: "module_current",
-    min_sdk_version: "Tiramisu",
+    min_sdk_version: "33",
     visibility: [
         "//packages/modules/OnDevicePersonalization:__subpackages__"
     ],

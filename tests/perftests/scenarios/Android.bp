@@ -16,30 +16,22 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
-android_test {
-    name: "OnDevicePersonalizationSystemServiceTests",
+java_library {
+    name: "ondevicepersonalization-test-scenarios",
     srcs: [
         "src/**/*.java",
     ],
-    defaults: ["framework-ondevicepersonalization-test-defaults"],
     libs: [
-        "android.test.base",
-        "android.test.runner",
-        "kotlin-annotations",
-        "truth-prebuilt",
+        "framework-ondevicepersonalization.impl",
     ],
     static_libs: [
-        "androidx.test.ext.junit",
-        "androidx.test.ext.truth",
+        "androidx.media_media",
         "androidx.test.rules",
-        "modules-utils-build",
+        "androidx.test.runner",
+        "androidx.test.uiautomator_uiautomator",
+        "common-platform-scenarios",
+        "platform-test-annotations",
+        "platform-test-options",
+        "platform-test-rules",
     ],
-    min_sdk_version: "Tiramisu",
-    certificate: "platform",
-    test_suites: [
-        "general-tests",
-        "mts-ondevicepersonalization",
-    ],
-    test_config: "AndroidTest.xml",
-    test_mainline_modules: ["com.google.android.ondevicepersonalization.apex"],
 }

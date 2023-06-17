@@ -22,35 +22,20 @@ import android.ondevicepersonalization.aidl.IDataAccessService;
 import java.util.Objects;
 
 /**
- * Container for per-request state and APIs for code that runs in the isolated
- * process.
+ * An opaque token that identifies the current request.
  *
  * @hide
  */
-public class OnDevicePersonalizationContextImpl implements OnDevicePersonalizationContext {
+public class RequestToken {
     @NonNull private IDataAccessService mDataAccessService;
-    @NonNull private ImmutableMap mRemoteData;
-    @NonNull private MutableMap mLocalData;
-    @NonNull private EventUrlProvider mEventUrlProvider;
 
     /** @hide */
-    public OnDevicePersonalizationContextImpl(@NonNull IDataAccessService binder) {
+    RequestToken(IDataAccessService binder) {
         mDataAccessService = Objects.requireNonNull(binder);
-        mRemoteData = new RemoteDataImpl(binder);
-        mLocalData = new LocalDataImpl(binder);
-        mEventUrlProvider = new EventUrlProvider(binder);
-
     }
 
-    @Override @NonNull public ImmutableMap getRemoteData() {
-        return mRemoteData;
-    }
-
-    @Override @NonNull public MutableMap getLocalData() {
-        return mLocalData;
-    }
-
-    @Override @NonNull public EventUrlProvider getEventUrlProvider() {
-        return mEventUrlProvider;
+    /** @hide */
+    IDataAccessService getDataAccessService() {
+        return mDataAccessService;
     }
 }

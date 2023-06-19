@@ -20,9 +20,7 @@ import android.annotation.NonNull;
 import android.content.ContentValues;
 import android.ondevicepersonalization.DownloadInput;
 import android.ondevicepersonalization.DownloadOutput;
-import android.ondevicepersonalization.EventInput;
 import android.ondevicepersonalization.EventLogRecord;
-import android.ondevicepersonalization.EventOutput;
 import android.ondevicepersonalization.EventUrlProvider;
 import android.ondevicepersonalization.ExecuteInput;
 import android.ondevicepersonalization.ExecuteOutput;
@@ -32,10 +30,13 @@ import android.ondevicepersonalization.RenderInput;
 import android.ondevicepersonalization.RenderOutput;
 import android.ondevicepersonalization.RenderingData;
 import android.ondevicepersonalization.RequestLogRecord;
+import android.ondevicepersonalization.WebViewEventInput;
+import android.ondevicepersonalization.WebViewEventOutput;
 import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
+import android.util.Base64;
 import android.util.JsonReader;
 import android.util.Log;
 
@@ -68,6 +69,10 @@ public class SampleHandler implements IsolatedComputationCallback {
     private static final String CLICK_COST_KEY = "clkcost";
     private static final String EVENT_TYPE_KEY = "type";
     private static final int BID_PRICE_OFFSET = 0;
+    private static final String TRANSPARENT_PNG_BASE64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAA"
+            + "AAXNSR0IArs4c6QAAAAtJREFUGFdjYAACAAAFAAGq1chRAAAAAElFTkSuQmCC";
+    private static final byte[] TRANSPARENT_PNG_BYTES = Base64.decode(TRANSPARENT_PNG_BASE64, 0);
     private static final Set<String> sBlockedKeywords = Set.of("cars", "trucks");
 
     private static final ListeningExecutorService sBackgroundExecutor =
@@ -112,12 +117,12 @@ public class SampleHandler implements IsolatedComputationCallback {
         sBackgroundExecutor.execute(() -> handleOnRender(input, consumer));
     }
 
-    @Override public void onEvent(
-            @NonNull EventInput input,
-            @NonNull Consumer<EventOutput> consumer) {
-        Log.d(TAG, "onEvent() started.");
+    @Override public void onWebViewEvent(
+            @NonNull WebViewEventInput input,
+            @NonNull Consumer<WebViewEventOutput> consumer) {
+        Log.d(TAG, "onWebViewEvent() started.");
         sBackgroundExecutor.execute(
-                () -> handleOnEvent(input, consumer));
+                () -> handleOnWebViewEvent(input, consumer));
     }
 
     private ListenableFuture<List<Ad>> readAds(KeyValueStore remoteData) {
@@ -227,16 +232,25 @@ public class SampleHandler implements IsolatedComputationCallback {
         }
     }
 
-    private ListenableFuture<String> getEventUrl(
-            int eventType, String landingPage) {
+    private ListenableFuture<String> getImpressionTrackingUrl() {
         try {
-            int responseType = (landingPage == null || landingPage.isEmpty())
-                    ? EventUrlProvider.RESPONSE_TYPE_TRANSPARENT_IMAGE
-                    : EventUrlProvider.RESPONSE_TYPE_REDIRECT;
             PersistableBundle eventParams = new PersistableBundle();
-            eventParams.putInt(EVENT_TYPE_KEY, eventType);
-            String url = mEventUrlProvider.getEventUrl(
-                    eventParams, responseType, landingPage);
+            eventParams.putInt(EVENT_TYPE_KEY, EVENT_TYPE_IMPRESSION);
+            String url = mEventUrlProvider.getEventTrackingUrl(
+                    eventParams, TRANSPARENT_PNG_BYTES, "image/png");
+            return Futures.immediateFuture(url);
+        } catch (Exception e) {
+            return Futures.immediateFailedFuture(e);
+        }
+    }
+
+    private ListenableFuture<String> getClickTrackingUrl(
+            String landingPage) {
+        try {
+            PersistableBundle eventParams = new PersistableBundle();
+            eventParams.putInt(EVENT_TYPE_KEY, EVENT_TYPE_CLICK);
+            String url = mEventUrlProvider.getEventTrackingUrlWithRedirect(
+                    eventParams, landingPage);
             return Futures.immediateFuture(url);
         } catch (Exception e) {
             return Futures.immediateFailedFuture(e);
@@ -279,9 +293,9 @@ public class SampleHandler implements IsolatedComputationCallback {
             Log.d(TAG, "handleOnRender() started.");
             String id = input.getRenderingData().getKeys().get(0);
             var adFuture = readAd(id, mRemoteData);
-            var impUrlFuture = getEventUrl(EVENT_TYPE_IMPRESSION, "");
+            var impUrlFuture = getImpressionTrackingUrl();
             var clickUrlFuture = FluentFuture.from(adFuture).transformAsync(
-                    ad -> getEventUrl(EVENT_TYPE_CLICK, ad.mLandingPage),
+                    ad -> getClickTrackingUrl(ad.mLandingPage),
                     sBackgroundExecutor);
             var unused = FluentFuture.from(
                     Futures.whenAllComplete(adFuture, impUrlFuture, clickUrlFuture)
@@ -311,15 +325,15 @@ public class SampleHandler implements IsolatedComputationCallback {
         }
     }
 
-    public void handleOnEvent(
-            @NonNull EventInput input,
-            @NonNull Consumer<EventOutput> consumer) {
+    public void handleOnWebViewEvent(
+            @NonNull WebViewEventInput input,
+            @NonNull Consumer<WebViewEventOutput> consumer) {
         try {
             Log.d(TAG, "handleOnEvent() started.");
             PersistableBundle eventParams = input.getParameters();
             int eventType = eventParams.getInt(EVENT_TYPE_KEY);
             if (eventType <= 0) {
-                consumer.accept(new EventOutput.Builder().build());
+                consumer.accept(new WebViewEventOutput.Builder().build());
                 return;
             }
             ContentValues logData = null;
@@ -338,7 +352,7 @@ public class SampleHandler implements IsolatedComputationCallback {
                 logData = new ContentValues();
                 logData.put(CLICK_COST_KEY, updatedPrice);
             }
-            EventOutput result = new EventOutput.Builder()
+            WebViewEventOutput result = new WebViewEventOutput.Builder()
                     .setEventLogRecord(
                         new EventLogRecord.Builder()
                             .setRowIndex(0)

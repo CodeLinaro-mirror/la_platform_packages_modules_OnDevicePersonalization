@@ -21,13 +21,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.ondevicepersonalization.Constants;
-import android.ondevicepersonalization.EventInput;
 import android.ondevicepersonalization.EventLogRecord;
-import android.ondevicepersonalization.EventOutput;
-import android.ondevicepersonalization.EventUrlProvider;
 import android.ondevicepersonalization.RequestLogRecord;
+import android.ondevicepersonalization.WebViewEventInput;
+import android.ondevicepersonalization.WebViewEventOutput;
 import android.os.Bundle;
-import android.util.Base64;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -60,10 +58,6 @@ class OdpWebViewClient extends WebViewClient {
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
     private static final String TAG = "OdpWebViewClient";
     public static final String TASK_NAME = "ComputeEventMetrics";
-    private static final String TRANSPARENT_PNG_BASE64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAA"
-            + "AAXNSR0IArs4c6QAAAAtJREFUGFdjYAACAAAFAAGq1chRAAAAAElFTkSuQmCC";
-    private static final byte[] TRANSPARENT_PNG_BYTES = Base64.decode(TRANSPARENT_PNG_BASE64, 0);
 
     @VisibleForTesting
     static class Injector {
@@ -118,16 +112,16 @@ class OdpWebViewClient extends WebViewClient {
             if (EventUrlHelper.isOdpUrl(url)) {
                 EventUrlPayload payload = EventUrlHelper.getEventFromOdpEventUrl(url);
                 mInjector.getExecutor().execute(() -> handleEvent(payload));
-                if (payload.getResponseType() == EventUrlProvider.RESPONSE_TYPE_NO_CONTENT) {
+                byte[] responseData = payload.getResponseData();
+                if (responseData == null || responseData.length == 0) {
                     return new WebResourceResponse(
                             null, null, HttpURLConnection.HTTP_NO_CONTENT, "No Content",
                             Collections.emptyMap(), InputStream.nullInputStream());
-                } else if (payload.getResponseType()
-                        == EventUrlProvider.RESPONSE_TYPE_TRANSPARENT_IMAGE) {
+                } else {
                     return new WebResourceResponse(
-                            "image/png", null, HttpURLConnection.HTTP_OK, "OK",
+                            payload.getMimeType(), null, HttpURLConnection.HTTP_OK, "OK",
                             Collections.emptyMap(),
-                            new ByteArrayInputStream(TRANSPARENT_PNG_BYTES));
+                            new ByteArrayInputStream(responseData));
                 }
             }
         } catch (Exception e) {
@@ -164,7 +158,7 @@ class OdpWebViewClient extends WebViewClient {
         return true;
     }
 
-    private ListenableFuture<EventOutput> executeEventHandler(
+    private ListenableFuture<WebViewEventOutput> executeEventHandler(
             IsolatedServiceInfo isolatedServiceInfo, EventUrlPayload payload) {
         try {
             sLogger.d(TAG + ": executeEventHandler() called");
@@ -173,7 +167,7 @@ class OdpWebViewClient extends WebViewClient {
                     mServicePackageName, mContext, true);
             serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
             // TODO(b/259950177): Add Query row to input.
-            EventInput input = new EventInput.Builder()
+            WebViewEventInput input = new WebViewEventInput.Builder()
                     .setParameters(payload.getEventParams())
                     .setRequestLogRecord(mLogRecord)
                     .build();
@@ -183,11 +177,11 @@ class OdpWebViewClient extends WebViewClient {
                         isolatedServiceInfo,
                         AppManifestConfigHelper.getServiceNameFromOdpSettings(
                                 mContext, mServicePackageName),
-                        Constants.OP_EVENT,
+                        Constants.OP_WEB_VIEW_EVENT,
                         serviceParams))
                     .transform(
                             result -> result.getParcelable(
-                                Constants.EXTRA_RESULT, EventOutput.class),
+                                Constants.EXTRA_RESULT, WebViewEventOutput.class),
                             mInjector.getExecutor());
         } catch (Exception e) {
             sLogger.e(TAG + ": executeEventHandler() failed", e);
@@ -196,7 +190,7 @@ class OdpWebViewClient extends WebViewClient {
 
     }
 
-    ListenableFuture<EventOutput> getEventOutput(EventUrlPayload payload) {
+    ListenableFuture<WebViewEventOutput> getEventOutput(EventUrlPayload payload) {
         try {
             sLogger.d(TAG + ": getEventOutput(): Starting isolated process.");
             return FluentFuture.from(ProcessUtils.loadIsolatedService(
@@ -211,7 +205,7 @@ class OdpWebViewClient extends WebViewClient {
         }
     }
 
-    private ListenableFuture<Void> writeEvent(EventOutput result) {
+    private ListenableFuture<Void> writeEvent(WebViewEventOutput result) {
         try {
             sLogger.d(TAG + ": writeEvent() called. EventOutput: " + result.toString());
             if (result == null || result.getEventLogRecord() == null) {

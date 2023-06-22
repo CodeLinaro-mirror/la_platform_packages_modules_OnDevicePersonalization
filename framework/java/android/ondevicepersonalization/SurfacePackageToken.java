@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 The Android Open Source Project
+ * Copyright (C) 2023 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,16 +14,23 @@
  * limitations under the License.
  */
 
-package com.android.odpsamplenetwork;
+package android.ondevicepersonalization;
 
 import android.annotation.NonNull;
-import android.ondevicepersonalization.IsolatedComputationCallback;
-import android.ondevicepersonalization.IsolatedComputationService;
-import android.ondevicepersonalization.RequestToken;
 
-public class SampleService extends IsolatedComputationService {
-    @NonNull @Override public IsolatedComputationCallback createCallback(
-            RequestToken requestToken) {
-        return new SampleHandler(getRemoteData(requestToken), getEventUrlProvider(requestToken));
+/**
+ * An opaque reference to content that can be displayed in a {@link SurfaceView}. This maps
+ * to a {@link RenderingData} returned by an {@link IsolatedComputationService}.
+ *
+ */
+public class SurfacePackageToken {
+    @NonNull private final String mTokenString;
+
+    SurfacePackageToken(@NonNull String tokenString) {
+        mTokenString = tokenString;
+    }
+
+    @NonNull String getTokenString() {
+        return mTokenString;
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 The Android Open Source Project
+ * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,22 +14,16 @@
  * limitations under the License.
  */
 
-package android.ondevicepersonalization;
+package com.example.odpsamplenetwork;
 
 import android.annotation.NonNull;
+import android.ondevicepersonalization.IsolatedComputationCallback;
+import android.ondevicepersonalization.IsolatedComputationService;
+import android.ondevicepersonalization.RequestToken;
 
-/**
- * An opaque reference to a {@link SlotResult} returned by a {@link IsolatedComputationCallback}.
- * @hide
- */
-public class SlotResultHandle {
-    @NonNull private final String mSlotResultToken;
-
-    SlotResultHandle(@NonNull String slotResultToken) {
-        mSlotResultToken = slotResultToken;
-    }
-
-    @NonNull String getSlotResultToken() {
-        return mSlotResultToken;
+public class SampleService extends IsolatedComputationService {
+    @NonNull @Override public IsolatedComputationCallback createCallback(
+            RequestToken requestToken) {
+        return new SampleHandler(getRemoteData(requestToken), getEventUrlProvider(requestToken));
     }
 }

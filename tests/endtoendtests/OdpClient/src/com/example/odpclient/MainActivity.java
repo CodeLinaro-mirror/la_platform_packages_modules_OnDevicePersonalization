@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-package com.android.odpclient;
+package com.example.odpclient;
 
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
 import android.ondevicepersonalization.OnDevicePersonalizationManager;
-import android.ondevicepersonalization.SlotResultHandle;
+import android.ondevicepersonalization.SurfacePackageToken;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -77,18 +77,18 @@ public class MainActivity extends Activity {
             }
             CountDownLatch latch = new CountDownLatch(1);
             Log.i(TAG, "Starting execute()");
-            AtomicReference<SlotResultHandle> slotResultHandle = new AtomicReference<>();
+            AtomicReference<SurfacePackageToken> slotResultHandle = new AtomicReference<>();
             PersistableBundle appParams = new PersistableBundle();
             appParams.putString("keyword", mTextBox.getText().toString());
             mOdpManager.execute(
                     ComponentName.createRelative(
-                        "com.android.odpsamplenetwork",
-                        "com.android.odpsamplenetwork.SampleService"),
+                        "com.example.odpsamplenetwork",
+                        "com.example.odpsamplenetwork.SampleService"),
                     appParams,
                     Executors.newSingleThreadExecutor(),
-                    new OutcomeReceiver<List<SlotResultHandle>, Exception>() {
+                    new OutcomeReceiver<List<SurfacePackageToken>, Exception>() {
                         @Override
-                        public void onResult(List<SlotResultHandle> result) {
+                        public void onResult(List<SurfacePackageToken> result) {
                             makeToast("execute() success: " + result.size());
                             if (result.size() > 0) {
                                 slotResultHandle.set(result.get(0));

@@ -19,19 +19,17 @@ package android.ondevicepersonalization;
 import android.annotation.NonNull;
 
 /**
- * An opaque reference to content that can be displayed in a {@link SurfaceView}. This maps
- * to a {@link RenderingData} returned by an {@link IsolatedComputationService}.
- *
+ * An opaque reference to a {@link SlotResult} returned by a {@link IsolatedComputationCallback}.
  * @hide
  */
-public class SurfacePackageToken {
-    @NonNull private final String mTokenString;
+public class SlotResultHandle {
+    @NonNull private final String mSlotResultToken;
 
-    SurfacePackageToken(@NonNull String tokenString) {
-        mTokenString = tokenString;
+    SlotResultHandle(@NonNull String slotResultToken) {
+        mSlotResultToken = slotResultToken;
     }
 
-    @NonNull String getTokenString() {
-        return mTokenString;
+    @NonNull String getSlotResultToken() {
+        return mSlotResultToken;
     }
 }

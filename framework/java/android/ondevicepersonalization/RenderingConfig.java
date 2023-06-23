@@ -16,11 +16,13 @@
 
 package android.ondevicepersonalization;
 
-import android.annotation.Nullable;
+import android.annotation.NonNull;
 import android.os.Parcelable;
 
+import com.android.ondevicepersonalization.internal.util.AnnotationValidations;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -29,12 +31,13 @@ import java.util.List;
  * @hide
  */
 @DataClass(genBuilder = true, genEqualsHashCode = true)
-public final class RenderingData implements Parcelable {
+public final class RenderingConfig implements Parcelable {
     /**
      * A List of keys that identify the content to be rendered.  The Keys must be present in
      * REMOTE_DATA.
      **/
-    @Nullable List<String> mKeys = null;
+    @DataClass.PluralOf("key")
+    @NonNull private List<String> mKeys = Collections.emptyList();
 
 
 
@@ -44,7 +47,7 @@ public final class RenderingData implements Parcelable {
     // CHECKSTYLE:OFF Generated code
     //
     // To regenerate run:
-    // $ codegen $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/ondevicepersonalization/RenderingData.java
+    // $ codegen $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/ondevicepersonalization/RenderingConfig.java
     //
     // To exclude the generated code from IntelliJ auto-formatting enable (one-time):
     //   Settings > Editor > Code Style > Formatter Control
@@ -52,9 +55,11 @@ public final class RenderingData implements Parcelable {
 
 
     @DataClass.Generated.Member
-    /* package-private */ RenderingData(
-            @Nullable List<String> keys) {
+    /* package-private */ RenderingConfig(
+            @NonNull List<String> keys) {
         this.mKeys = keys;
+        AnnotationValidations.validate(
+                NonNull.class, null, mKeys);
 
         // onConstructed(); // You can define this method to get a callback
     }
@@ -64,21 +69,21 @@ public final class RenderingData implements Parcelable {
      * REMOTE_DATA.
      */
     @DataClass.Generated.Member
-    public @Nullable List<String> getKeys() {
+    public @NonNull List<String> getKeys() {
         return mKeys;
     }
 
     @Override
     @DataClass.Generated.Member
-    public boolean equals(@Nullable Object o) {
+    public boolean equals(@android.annotation.Nullable Object o) {
         // You can override field equality logic by defining either of the methods like:
-        // boolean fieldNameEquals(RenderingData other) { ... }
+        // boolean fieldNameEquals(RenderingConfig other) { ... }
         // boolean fieldNameEquals(FieldType otherValue) { ... }
 
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         @SuppressWarnings("unchecked")
-        RenderingData that = (RenderingData) o;
+        RenderingConfig that = (RenderingConfig) o;
         //noinspection PointlessBooleanExpression
         return true
                 && java.util.Objects.equals(mKeys, that.mKeys);
@@ -97,14 +102,11 @@ public final class RenderingData implements Parcelable {
 
     @Override
     @DataClass.Generated.Member
-    public void writeToParcel(@android.annotation.NonNull android.os.Parcel dest, int flags) {
+    public void writeToParcel(@NonNull android.os.Parcel dest, int flags) {
         // You can override field parcelling by defining methods like:
         // void parcelFieldName(Parcel dest, int flags) { ... }
 
-        byte flg = 0;
-        if (mKeys != null) flg |= 0x1;
-        dest.writeByte(flg);
-        if (mKeys != null) dest.writeStringList(mKeys);
+        dest.writeStringList(mKeys);
     }
 
     @Override
@@ -114,44 +116,42 @@ public final class RenderingData implements Parcelable {
     /** @hide */
     @SuppressWarnings({"unchecked", "RedundantCast"})
     @DataClass.Generated.Member
-    /* package-private */ RenderingData(@android.annotation.NonNull android.os.Parcel in) {
+    /* package-private */ RenderingConfig(@NonNull android.os.Parcel in) {
         // You can override field unparcelling by defining methods like:
         // static FieldType unparcelFieldName(Parcel in) { ... }
 
-        byte flg = in.readByte();
-        List<String> keys = null;
-        if ((flg & 0x1) != 0) {
-            keys = new java.util.ArrayList<>();
-            in.readStringList(keys);
-        }
+        List<String> keys = new java.util.ArrayList<>();
+        in.readStringList(keys);
 
         this.mKeys = keys;
+        AnnotationValidations.validate(
+                NonNull.class, null, mKeys);
 
         // onConstructed(); // You can define this method to get a callback
     }
 
     @DataClass.Generated.Member
-    public static final @android.annotation.NonNull Parcelable.Creator<RenderingData> CREATOR
-            = new Parcelable.Creator<RenderingData>() {
+    public static final @NonNull Parcelable.Creator<RenderingConfig> CREATOR
+            = new Parcelable.Creator<RenderingConfig>() {
         @Override
-        public RenderingData[] newArray(int size) {
-            return new RenderingData[size];
+        public RenderingConfig[] newArray(int size) {
+            return new RenderingConfig[size];
         }
 
         @Override
-        public RenderingData createFromParcel(@android.annotation.NonNull android.os.Parcel in) {
-            return new RenderingData(in);
+        public RenderingConfig createFromParcel(@NonNull android.os.Parcel in) {
+            return new RenderingConfig(in);
         }
     };
 
     /**
-     * A builder for {@link RenderingData}
+     * A builder for {@link RenderingConfig}
      */
     @SuppressWarnings("WeakerAccess")
     @DataClass.Generated.Member
     public static final class Builder {
 
-        private @Nullable List<String> mKeys;
+        private @NonNull List<String> mKeys;
 
         private long mBuilderFieldsSet = 0L;
 
@@ -163,7 +163,7 @@ public final class RenderingData implements Parcelable {
          * REMOTE_DATA.
          */
         @DataClass.Generated.Member
-        public @android.annotation.NonNull Builder setKeys(@android.annotation.NonNull List<String> value) {
+        public @NonNull Builder setKeys(@NonNull List<String> value) {
             checkNotUsed();
             mBuilderFieldsSet |= 0x1;
             mKeys = value;
@@ -172,24 +172,21 @@ public final class RenderingData implements Parcelable {
 
         /** @see #setKeys */
         @DataClass.Generated.Member
-        public @android.annotation.NonNull Builder addKeys(@android.annotation.NonNull String value) {
-            // You can refine this method's name by providing item's singular name, e.g.:
-            // @DataClass.PluralOf("item")) mItems = ...
-
+        public @NonNull Builder addKey(@NonNull String value) {
             if (mKeys == null) setKeys(new java.util.ArrayList<>());
             mKeys.add(value);
             return this;
         }
 
         /** Builds the instance. This builder should not be touched after calling this! */
-        public @android.annotation.NonNull RenderingData build() {
+        public @NonNull RenderingConfig build() {
             checkNotUsed();
             mBuilderFieldsSet |= 0x2; // Mark builder used
 
             if ((mBuilderFieldsSet & 0x1) == 0) {
-                mKeys = null;
+                mKeys = Collections.emptyList();
             }
-            RenderingData o = new RenderingData(
+            RenderingConfig o = new RenderingConfig(
                     mKeys);
             return o;
         }
@@ -203,10 +200,10 @@ public final class RenderingData implements Parcelable {
     }
 
     @DataClass.Generated(
-            time = 1686615050774L,
+            time = 1687414684682L,
             codegenVersion = "1.0.23",
-            sourceFile = "packages/modules/OnDevicePersonalization/framework/java/android/ondevicepersonalization/RenderingData.java",
-            inputSignatures = " @android.annotation.Nullable java.util.List<java.lang.String> mKeys\nclass RenderingData extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)")
+            sourceFile = "packages/modules/OnDevicePersonalization/framework/java/android/ondevicepersonalization/RenderingConfig.java",
+            inputSignatures = "private @com.android.ondevicepersonalization.internal.util.DataClass.PluralOf(\"key\") @android.annotation.NonNull java.util.List<java.lang.String> mKeys\nclass RenderingConfig extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)")
     @Deprecated
     private void __metadata() {}
 

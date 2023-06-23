@@ -50,20 +50,22 @@ public abstract class IsolatedComputationService extends Service {
         mBinder = new ServiceBinder();
     }
 
-    @Override public IBinder onBind(Intent intent) {
+    @Override @Nullable public IBinder onBind(@NonNull Intent intent) {
         return mBinder;
     }
 
     /**
      * Return an instance of {@link IsolatedComputationCallback} that handles client requests.
      */
-    @NonNull public abstract IsolatedComputationCallback createCallback(RequestToken requestToken);
+    @NonNull public abstract IsolatedComputationCallback onRequest(
+            @NonNull RequestToken requestToken);
 
     /**
      * Returns a DAO for the REMOTE_DATA table.
      * @return A {@link KeyValueStore} object that provides access to the REMOTE_DATA table.
      */
-    @NonNull public KeyValueStore getRemoteData(RequestToken requestToken) {
+    @NonNull public final KeyValueStore getRemoteData(
+            @NonNull RequestToken requestToken) {
         return new RemoteDataImpl(requestToken.getDataAccessService());
     }
 
@@ -71,17 +73,23 @@ public abstract class IsolatedComputationService extends Service {
      * Returns a DAO for the LOCAL_DATA table.
      * @return A {@link MutableKeyValueStore} object that provides access to the LOCAL_DATA table.
      */
-    @NonNull public MutableKeyValueStore getLocalData(RequestToken requestToken) {
+    @NonNull public final MutableKeyValueStore getLocalData(
+            @NonNull RequestToken requestToken) {
         return new LocalDataImpl(requestToken.getDataAccessService());
     }
 
     /** Returns an {@link EventUrlProvider} for the current request. */
-    @NonNull public EventUrlProvider getEventUrlProvider(RequestToken requestToken) {
+    @NonNull public final EventUrlProvider getEventUrlProvider(
+            @NonNull RequestToken requestToken) {
         return new EventUrlProvider(requestToken.getDataAccessService());
     }
 
-    /** Returns the most recent {@link UserData}. */
-    @Nullable public UserData getUserData(RequestToken requestToken) {
+    /** Returns the most recent {@link UserData}.
+     *
+     * @hide
+     */
+    @Nullable public UserData getUserData(
+            @NonNull RequestToken requestToken) {
         return requestToken.getUserData();
     }
 
@@ -108,7 +116,8 @@ public abstract class IsolatedComputationService extends Service {
                 UserData userData = params.getParcelable(
                         Constants.EXTRA_USER_DATA, UserData.class);
                 RequestToken requestToken = new RequestToken(binder, userData);
-                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                IsolatedComputationCallback implCallback =
+                        IsolatedComputationService.this.onRequest(requestToken);
                 implCallback.onExecute(
                         input, new WrappedCallback<ExecuteOutput>(resultCallback));
 
@@ -140,7 +149,8 @@ public abstract class IsolatedComputationService extends Service {
                 UserData userData = params.getParcelable(
                         Constants.EXTRA_USER_DATA, UserData.class);
                 RequestToken requestToken = new RequestToken(binder, userData);
-                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                IsolatedComputationCallback implCallback =
+                        IsolatedComputationService.this.onRequest(requestToken);
                 implCallback.onDownload(
                         downloadInput, new WrappedCallback<DownloadOutput>(resultCallback));
 
@@ -148,13 +158,14 @@ public abstract class IsolatedComputationService extends Service {
 
                 RenderInput input = Objects.requireNonNull(
                         params.getParcelable(Constants.EXTRA_INPUT, RenderInput.class));
-                Objects.requireNonNull(input.getRenderingData());
+                Objects.requireNonNull(input.getRenderingConfig());
                 IDataAccessService binder =
                         IDataAccessService.Stub.asInterface(Objects.requireNonNull(
                             params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 Objects.requireNonNull(binder);
                 RequestToken requestToken = new RequestToken(binder, null);
-                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                IsolatedComputationCallback implCallback =
+                        IsolatedComputationService.this.onRequest(requestToken);
                 implCallback.onRender(
                         input, new WrappedCallback<RenderOutput>(resultCallback));
 
@@ -168,7 +179,8 @@ public abstract class IsolatedComputationService extends Service {
                 UserData userData = params.getParcelable(
                         Constants.EXTRA_USER_DATA, UserData.class);
                 RequestToken requestToken = new RequestToken(binder, userData);
-                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                IsolatedComputationCallback implCallback =
+                        IsolatedComputationService.this.onRequest(requestToken);
                 implCallback.onWebViewEvent(
                         input, new WrappedCallback<WebViewEventOutput>(resultCallback));
 

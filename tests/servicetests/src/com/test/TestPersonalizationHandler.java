@@ -17,20 +17,20 @@
 package com.test;
 
 import android.annotation.NonNull;
+import android.app.ondevicepersonalization.DownloadInput;
+import android.app.ondevicepersonalization.DownloadOutput;
+import android.app.ondevicepersonalization.EventLogRecord;
+import android.app.ondevicepersonalization.ExecuteInput;
+import android.app.ondevicepersonalization.ExecuteOutput;
+import android.app.ondevicepersonalization.IsolatedComputationCallback;
+import android.app.ondevicepersonalization.KeyValueStore;
+import android.app.ondevicepersonalization.RenderInput;
+import android.app.ondevicepersonalization.RenderOutput;
+import android.app.ondevicepersonalization.RenderingConfig;
+import android.app.ondevicepersonalization.RequestLogRecord;
+import android.app.ondevicepersonalization.WebViewEventInput;
+import android.app.ondevicepersonalization.WebViewEventOutput;
 import android.content.ContentValues;
-import android.ondevicepersonalization.DownloadInput;
-import android.ondevicepersonalization.DownloadOutput;
-import android.ondevicepersonalization.EventLogRecord;
-import android.ondevicepersonalization.ExecuteInput;
-import android.ondevicepersonalization.ExecuteOutput;
-import android.ondevicepersonalization.IsolatedComputationCallback;
-import android.ondevicepersonalization.KeyValueStore;
-import android.ondevicepersonalization.RenderInput;
-import android.ondevicepersonalization.RenderOutput;
-import android.ondevicepersonalization.RenderingData;
-import android.ondevicepersonalization.RequestLogRecord;
-import android.ondevicepersonalization.WebViewEventInput;
-import android.ondevicepersonalization.WebViewEventOutput;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -65,7 +65,7 @@ public class TestPersonalizationHandler implements IsolatedComputationCallback {
             // Get the keys to keep from the downloaded data
             DownloadOutput result =
                     new DownloadOutput.Builder()
-                            .setKeysToRetain(keysToRetain)
+                            .setRetainedKeys(keysToRetain)
                             .build();
             consumer.accept(result);
         } catch (Exception e) {
@@ -82,9 +82,9 @@ public class TestPersonalizationHandler implements IsolatedComputationCallback {
         logData.put("id", "bid1");
         logData.put("pr", 5.0);
         ExecuteOutput result = new ExecuteOutput.Builder()
-                .setRequestLogRecord(new RequestLogRecord.Builder().addRows(logData).build())
-                .addRenderingDataList(
-                    new RenderingData.Builder().addKeys("bid1").build()
+                .setRequestLogRecord(new RequestLogRecord.Builder().addRow(logData).build())
+                .addRenderingConfig(
+                    new RenderingConfig.Builder().addKey("bid1").build()
                 )
                 .build();
         consumer.accept(result);
@@ -98,7 +98,7 @@ public class TestPersonalizationHandler implements IsolatedComputationCallback {
         RenderOutput result =
                 new RenderOutput.Builder()
                 .setContent("<p>RenderResult: "
-                    + String.join(",", input.getRenderingData().getKeys()) + "<p>")
+                    + String.join(",", input.getRenderingConfig().getKeys()) + "<p>")
                 .build();
         consumer.accept(result);
     }

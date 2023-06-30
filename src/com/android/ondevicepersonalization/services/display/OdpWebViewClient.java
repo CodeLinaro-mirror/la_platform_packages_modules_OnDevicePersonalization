@@ -17,14 +17,15 @@
 package com.android.ondevicepersonalization.services.display;
 
 import android.annotation.NonNull;
+import android.app.ondevicepersonalization.Constants;
+import android.app.ondevicepersonalization.EventLogRecord;
+import android.app.ondevicepersonalization.RequestLogRecord;
+import android.app.ondevicepersonalization.UserData;
+import android.app.ondevicepersonalization.WebViewEventInput;
+import android.app.ondevicepersonalization.WebViewEventOutput;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.ondevicepersonalization.Constants;
-import android.ondevicepersonalization.EventLogRecord;
-import android.ondevicepersonalization.RequestLogRecord;
-import android.ondevicepersonalization.WebViewEventInput;
-import android.ondevicepersonalization.WebViewEventOutput;
 import android.os.Bundle;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -40,6 +41,7 @@ import com.android.ondevicepersonalization.services.data.events.EventUrlHelper;
 import com.android.ondevicepersonalization.services.data.events.EventUrlPayload;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
+import com.android.ondevicepersonalization.services.policyengine.UserDataAccessor;
 import com.android.ondevicepersonalization.services.process.IsolatedServiceInfo;
 import com.android.ondevicepersonalization.services.process.ProcessUtils;
 import com.android.ondevicepersonalization.services.util.OnDevicePersonalizationFlatbufferUtils;
@@ -172,6 +174,9 @@ class OdpWebViewClient extends WebViewClient {
                     .setRequestLogRecord(mLogRecord)
                     .build();
             serviceParams.putParcelable(Constants.EXTRA_INPUT, input);
+            UserDataAccessor userDataAccessor = new UserDataAccessor();
+            UserData userData = userDataAccessor.getUserData();
+            serviceParams.putParcelable(Constants.EXTRA_USER_DATA, userData);
             return FluentFuture.from(
                     ProcessUtils.runIsolatedService(
                         isolatedServiceInfo,

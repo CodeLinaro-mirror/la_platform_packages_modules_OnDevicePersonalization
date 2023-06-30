@@ -24,11 +24,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import android.app.ondevicepersonalization.RequestLogRecord;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
-import android.ondevicepersonalization.RequestLogRecord;
 import android.os.PersistableBundle;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -233,7 +233,7 @@ public class OdpWebViewClientTests {
 
     private WebViewClient getWebViewClient() {
         RequestLogRecord logRecord =
-                new RequestLogRecord.Builder().addRows(new ContentValues()).build();
+                new RequestLogRecord.Builder().addRow(new ContentValues()).build();
         return getWebViewClient(QUERY_ID, logRecord);
     }
 

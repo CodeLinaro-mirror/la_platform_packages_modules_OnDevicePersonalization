@@ -29,24 +29,26 @@ public class Constants {
     public static final int OP_EXECUTE = 1;
     public static final int OP_DOWNLOAD = 2;
     public static final int OP_RENDER = 3;
-    public static final int OP_EVENT = 4;
+    public static final int OP_WEB_VIEW_EVENT = 4;
 
     // Keys for Bundle objects passed between processes.
     public static final String
             EXTRA_DATA_ACCESS_SERVICE_BINDER =
                 "android.ondevicepersonalization.extra.data_access_service_binder";
     public static final String
-            EXTRA_BID_ID = "android.ondevicepersonalization.extra.bid_id";
-    public static final String
             EXTRA_DESTINATION_URL = "android.ondevicepersonalization.extra.destination_url";
     public static final String
-            EXTRA_EVENT_TYPE = "android.ondevicepersonalization.extra.event_type";
+            EXTRA_EVENT_PARAMS = "android.ondevicepersonalization.extra.event_params";
     public static final String
             EXTRA_INPUT = "android.ondevicepersonalization.extra.input";
     public static final String
             EXTRA_LOOKUP_KEYS = "android.ondevicepersonalization.extra.lookup_keys";
     public static final String
-            EXTRA_RESPONSE_TYPE = "android.ondevicepersonalization.extra.response_type";
+            EXTRA_MIME_TYPE = "android.ondevicepersonalization.extra.mime_type";
+    public static final String
+            EXTRA_RESPONSE_DATA = "android.ondevicepersonalization.extra.response_data";
+    public static final String
+            EXTRA_USER_DATA = "android.ondevicepersonalization.extra.user_data";
     public static final String
             EXTRA_VALUE = "android.ondevicepersonalization.extra.value";
     public static final String

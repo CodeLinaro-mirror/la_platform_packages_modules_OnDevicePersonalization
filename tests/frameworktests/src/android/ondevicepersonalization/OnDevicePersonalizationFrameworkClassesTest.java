@@ -18,6 +18,7 @@ package android.ondevicepersonalization;
 
 import static org.junit.Assert.assertEquals;
 
+import android.content.ContentValues;
 import android.os.Parcel;
 import android.os.PersistableBundle;
 
@@ -26,6 +27,8 @@ import androidx.test.filters.SmallTest;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import java.util.ArrayList;
 
 /**
  * Unit Tests of Framework API Classes.
@@ -38,22 +41,12 @@ public class OnDevicePersonalizationFrameworkClassesTest {
      */
     @Test
     public void testExecuteOutput() {
+        ContentValues row = new ContentValues();
+        row.put("a", 5);
         ExecuteOutput result =
                 new ExecuteOutput.Builder()
-                    .addSlotResults(
-                        new SlotResult.Builder().setSlotKey("abc")
-                            .addRenderedBidKeys("bid1")
-                            .addLoggedBids(
-                                new Bid.Builder()
-                                    .setKey("bid1")
-                                    .setMetrics(new Metrics.Builder()
-                                        .setLongValues(11).build())
-                                    .build())
-                            .addLoggedBids(
-                                new Bid.Builder()
-                                    .setKey("bid2")
-                                    .build())
-                            .build())
+                    .setRequestLogRecord(new RequestLogRecord.Builder().addRows(row).build())
+                    .addRenderingDataList(new RenderingData.Builder().addKeys("abc").build())
                     .build();
 
         Parcel parcel = Parcel.obtain();
@@ -61,29 +54,9 @@ public class OnDevicePersonalizationFrameworkClassesTest {
         parcel.setDataPosition(0);
         ExecuteOutput result2 = ExecuteOutput.CREATOR.createFromParcel(parcel);
 
-        SlotResult slotResult = result2.getSlotResults().get(0);
-        assertEquals("abc", slotResult.getSlotKey());
-        assertEquals("bid1", slotResult.getLoggedBids().get(0).getKey());
-        assertEquals("bid1", slotResult.getRenderedBidKeys().get(0));
-        assertEquals(11, slotResult.getLoggedBids().get(0).getMetrics().getLongValues()[0]);
-        assertEquals("bid2", slotResult.getLoggedBids().get(1).getKey());
-    }
-
-    /**
-     * Tests that the SlotInfo object serializes correctly.
-     */
-    @Test
-    public void testSlotInfo() {
-        SlotInfo slotInfo = new SlotInfo.Builder().setWidth(100).setHeight(50).build();
-
-        Parcel parcel = Parcel.obtain();
-        slotInfo.writeToParcel(parcel, 0);
-        parcel.setDataPosition(0);
-        SlotInfo slotInfo2 = SlotInfo.CREATOR.createFromParcel(parcel);
-
-        assertEquals(slotInfo, slotInfo2);
-        assertEquals(100, slotInfo2.getWidth());
-        assertEquals(50, slotInfo2.getHeight());
+        assertEquals(
+                5, result2.getRequestLogRecord().getRows().get(0).getAsInteger("a").intValue());
+        assertEquals("abc", result2.getRenderingDataList().get(0).getKeys().get(0));
     }
 
     /**
@@ -121,66 +94,97 @@ public class OnDevicePersonalizationFrameworkClassesTest {
     }
 
     /**
-     * Tests that the Metrics object serializes correctly.
+     * Tests that the WebViewEventInput object serializes correctly.
      */
     @Test
-    public void testMetrics() {
-        long[] intMetrics = {10, 20};
-        double[] floatMetrics = {5.0};
-        Metrics result = new Metrics.Builder()
-                .setLongValues(intMetrics)
-                .setDoubleValues(floatMetrics)
-                .setBooleanValues(true).build();
-
-        Parcel parcel = Parcel.obtain();
-        result.writeToParcel(parcel, 0);
-        parcel.setDataPosition(0);
-        Metrics result2 = Metrics.CREATOR.createFromParcel(parcel);
-
-        assertEquals(result, result2);
-        assertEquals(10, result2.getLongValues()[0]);
-        assertEquals(20, result2.getLongValues()[1]);
-        assertEquals(5.0, result2.getDoubleValues()[0], 0.0);
-        assertEquals(true, result2.getBooleanValues()[0]);
-    }
-
-    /**
-     * Tests that the EventInput object serializes correctly.
-     */
-    @Test
-    public void testEventInput() {
+    public void testWebViewEventInput() {
         PersistableBundle params = new PersistableBundle();
         params.putInt("x", 3);
-        EventInput result = new EventInput.Builder()
-                .setEventType(6)
-                .setBid(new Bid.Builder().setKey("a").build())
+        ArrayList<ContentValues> rows = new ArrayList<>();
+        rows.add(new ContentValues());
+        rows.get(0).put("a", 5);
+        WebViewEventInput result = new WebViewEventInput.Builder()
+                .setParameters(params)
+                .setRequestLogRecord(
+                    new RequestLogRecord.Builder()
+                        .setRows(rows)
+                        .build())
                 .build();
 
         Parcel parcel = Parcel.obtain();
         result.writeToParcel(parcel, 0);
         parcel.setDataPosition(0);
-        EventInput result2 = EventInput.CREATOR.createFromParcel(parcel);
+        WebViewEventInput result2 = WebViewEventInput.CREATOR.createFromParcel(parcel);
 
-        assertEquals(6, result2.getEventType());
-        assertEquals("a", result2.getBid().getKey());
+        assertEquals(3, result2.getParameters().getInt("x"));
+        assertEquals(
+                5, result2.getRequestLogRecord().getRows().get(0).getAsInteger("a").intValue());
     }
 
     /**
-     * Tests that the Metrics object serializes correctly.
+     * Tests that the WebViewEventOutput object serializes correctly.
      */
     @Test
-    public void testEventOutput() {
-        long[] intMetrics = {10, 20};
-        double[] floatMetrics = {5.0};
-        EventOutput result = new EventOutput.Builder()
-                .setMetrics(new Metrics.Builder().setLongValues(11).build()).build();
+    public void testWebViewEventOutput() {
+        ContentValues data = new ContentValues();
+        data.put("a", 3);
+        WebViewEventOutput result = new WebViewEventOutput.Builder()
+                .setEventLogRecord(
+                    new EventLogRecord.Builder()
+                        .setType(5)
+                        .setRowIndex(6)
+                        .setData(data)
+                        .build())
+                .build();
 
         Parcel parcel = Parcel.obtain();
         result.writeToParcel(parcel, 0);
         parcel.setDataPosition(0);
-        EventOutput result2 = EventOutput.CREATOR.createFromParcel(parcel);
+        WebViewEventOutput result2 = WebViewEventOutput.CREATOR.createFromParcel(parcel);
 
         assertEquals(result, result2);
-        assertEquals(11, result2.getMetrics().getLongValues()[0]);
+        assertEquals(5, result2.getEventLogRecord().getType());
+        assertEquals(6, result2.getEventLogRecord().getRowIndex());
+        assertEquals(3, result2.getEventLogRecord().getData().getAsInteger("a").intValue());
+    }
+
+    /** Test for RenderingData class. */
+    @Test
+    public void testRenderingData() {
+        RenderingData data = new RenderingData.Builder().addKeys("a").addKeys("b").build();
+        assertEquals(2, data.getKeys().size());
+        assertEquals("a", data.getKeys().get(0));
+        assertEquals("b", data.getKeys().get(1));
+    }
+
+    /** Test for RequestLogRecord class. */
+    @Test
+    public void testRequestLogRecord() {
+        ArrayList<ContentValues> rows = new ArrayList<>();
+        ContentValues row = new ContentValues();
+        row.put("a", 5);
+        rows.add(row);
+        row = new ContentValues();
+        row.put("b", 6);
+        rows.add(row);
+        RequestLogRecord logRecord = new RequestLogRecord.Builder().setRows(rows).build();
+        assertEquals(2, logRecord.getRows().size());
+        assertEquals(5, logRecord.getRows().get(0).getAsInteger("a").intValue());
+        assertEquals(6, logRecord.getRows().get(1).getAsInteger("b").intValue());
+    }
+
+    /** Test for RequestLogRecord class. */
+    @Test
+    public void testEventLogRecord() {
+        ContentValues row = new ContentValues();
+        row.put("a", 5);
+        EventLogRecord logRecord = new EventLogRecord.Builder()
+                .setType(1)
+                .setRowIndex(2)
+                .setData(row)
+                .build();
+        assertEquals(1, logRecord.getType());
+        assertEquals(2, logRecord.getRowIndex());
+        assertEquals(5, logRecord.getData().getAsInteger("a").intValue());
     }
 }

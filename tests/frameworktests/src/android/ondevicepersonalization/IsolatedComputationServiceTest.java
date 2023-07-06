@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import android.content.ContentValues;
 import android.ondevicepersonalization.aidl.IDataAccessService;
 import android.ondevicepersonalization.aidl.IDataAccessServiceCallback;
 import android.ondevicepersonalization.aidl.IIsolatedComputationService;
@@ -47,13 +48,14 @@ import java.util.function.Consumer;
 @SmallTest
 @RunWith(AndroidJUnit4.class)
 public class IsolatedComputationServiceTest {
+    private static final String EVENT_TYPE_KEY = "event_type";
     private final TestService mTestService = new TestService();
     private IIsolatedComputationService mBinder;
     private final CountDownLatch mLatch = new CountDownLatch(1);
     private boolean mSelectContentCalled;
     private boolean mOnDownloadCalled;
-    private boolean mRenderContentCalled;
-    private boolean mComputeEventMetricsCalled;
+    private boolean mOnRenderCalled;
+    private boolean mOnEventCalled;
     private Bundle mCallbackResult;
     private int mCallbackErrorCode;
 
@@ -92,8 +94,9 @@ public class IsolatedComputationServiceTest {
         assertTrue(mSelectContentCalled);
         ExecuteOutput result =
                 mCallbackResult.getParcelable(Constants.EXTRA_RESULT, ExecuteOutput.class);
-        assertEquals("123", result.getSlotResults().get(0).getLoggedBids().get(0).getKey());
-        assertEquals("123", result.getSlotResults().get(0).getRenderedBidKeys().get(0));
+        assertEquals(
+                5, result.getRequestLogRecord().getRows().get(0).getAsInteger("a").intValue());
+        assertEquals("123", result.getRenderingDataList().get(0).getKeys().get(0));
     }
 
     @Test
@@ -269,11 +272,11 @@ public class IsolatedComputationServiceTest {
     public void testOnRender() throws Exception {
         RenderInput input =
                 new RenderInput.Builder()
-                .setSlotInfo(
-                    new SlotInfo.Builder().build()
-                )
-                .addBidKeys("a")
-                .addBidKeys("b")
+                .setRenderingData(
+                    new RenderingData.Builder()
+                        .addKeys("a")
+                        .addKeys("b")
+                        .build())
                 .build();
         Bundle params = new Bundle();
         params.putParcelable(Constants.EXTRA_INPUT, input);
@@ -281,7 +284,7 @@ public class IsolatedComputationServiceTest {
         mBinder.onRequest(
                 Constants.OP_RENDER, params, new TestServiceCallback());
         mLatch.await();
-        assertTrue(mRenderContentCalled);
+        assertTrue(mOnRenderCalled);
         RenderOutput result =
                 mCallbackResult.getParcelable(Constants.EXTRA_RESULT, RenderOutput.class);
         assertEquals("htmlstring", result.getContent());
@@ -291,10 +294,10 @@ public class IsolatedComputationServiceTest {
     public void testOnRenderPropagatesError() throws Exception {
         RenderInput input =
                 new RenderInput.Builder()
-                .setSlotInfo(
-                    new SlotInfo.Builder().build()
-                )
-                .addBidKeys("z")  // Trigger error in service.
+                .setRenderingData(
+                    new RenderingData.Builder()
+                        .addKeys("z")  // Trigger error in service.
+                        .build())
                 .build();
         Bundle params = new Bundle();
         params.putParcelable(Constants.EXTRA_INPUT, input);
@@ -302,7 +305,7 @@ public class IsolatedComputationServiceTest {
         mBinder.onRequest(
                 Constants.OP_RENDER, params, new TestServiceCallback());
         mLatch.await();
-        assertTrue(mRenderContentCalled);
+        assertTrue(mOnRenderCalled);
         assertEquals(Constants.STATUS_INTERNAL_ERROR, mCallbackErrorCode);
     }
 
@@ -334,11 +337,11 @@ public class IsolatedComputationServiceTest {
     public void testOnRenderThrowsIfDataAccessServiceMissing() throws Exception {
         RenderInput input =
                 new RenderInput.Builder()
-                .setSlotInfo(
-                    new SlotInfo.Builder().build()
-                )
-                .addBidKeys("a")
-                .addBidKeys("b")
+                .setRenderingData(
+                    new RenderingData.Builder()
+                        .addKeys("a")
+                        .addKeys("b")
+                        .build())
                 .build();
         Bundle params = new Bundle();
         params.putParcelable(Constants.EXTRA_INPUT, input);
@@ -355,11 +358,11 @@ public class IsolatedComputationServiceTest {
     public void testOnRenderThrowsIfCallbackMissing() throws Exception {
         RenderInput input =
                 new RenderInput.Builder()
-                .setSlotInfo(
-                    new SlotInfo.Builder().build()
-                )
-                .addBidKeys("a")
-                .addBidKeys("b")
+                .setRenderingData(
+                    new RenderingData.Builder()
+                        .addKeys("a")
+                        .addKeys("b")
+                        .build())
                 .build();
         Bundle params = new Bundle();
         params.putParcelable(Constants.EXTRA_INPUT, input);
@@ -373,118 +376,116 @@ public class IsolatedComputationServiceTest {
     }
 
     @Test
-    public void testOnEvent() throws Exception {
-        Bundle params = new Bundle();
-        params.putParcelable(
-                Constants.EXTRA_INPUT, new EventInput.Builder().build());
-        params.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new TestDataAccessService());
-        mBinder.onRequest(
-                Constants.OP_EVENT, params,
-                new TestServiceCallback());
-        mLatch.await();
-        assertTrue(mComputeEventMetricsCalled);
-        EventOutput result =
-                mCallbackResult.getParcelable(Constants.EXTRA_RESULT, EventOutput.class);
-        assertEquals(2468, result.getMetrics().getLongValues()[0]);
-    }
-
-    @Test
-    public void testOnEventPropagatesError() throws Exception {
+    public void testOnWebViewEvent() throws Exception {
         Bundle params = new Bundle();
         params.putParcelable(
                 Constants.EXTRA_INPUT,
-                // Input value 9999 will trigger an error in the mock service.
-                new EventInput.Builder().setEventType(9999).build());
+                new WebViewEventInput.Builder().setParameters(PersistableBundle.EMPTY).build());
         params.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new TestDataAccessService());
         mBinder.onRequest(
-                Constants.OP_EVENT, params,
+                Constants.OP_WEB_VIEW_EVENT, params,
                 new TestServiceCallback());
         mLatch.await();
-        assertTrue(mComputeEventMetricsCalled);
+        assertTrue(mOnEventCalled);
+        WebViewEventOutput result =
+                mCallbackResult.getParcelable(Constants.EXTRA_RESULT, WebViewEventOutput.class);
+        assertEquals(1, result.getEventLogRecord().getType());
+        assertEquals(2, result.getEventLogRecord().getRowIndex());
+    }
+
+    @Test
+    public void testOnWebViewEventPropagatesError() throws Exception {
+        PersistableBundle eventParams = new PersistableBundle();
+        // Input value 9999 will trigger an error in the mock service.
+        eventParams.putInt(EVENT_TYPE_KEY, 9999);
+        Bundle params = new Bundle();
+        params.putParcelable(
+                Constants.EXTRA_INPUT,
+                new WebViewEventInput.Builder().setParameters(eventParams).build());
+        params.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new TestDataAccessService());
+        mBinder.onRequest(
+                Constants.OP_WEB_VIEW_EVENT, params,
+                new TestServiceCallback());
+        mLatch.await();
+        assertTrue(mOnEventCalled);
         assertEquals(Constants.STATUS_INTERNAL_ERROR, mCallbackErrorCode);
     }
 
     @Test
-    public void testOnEventThrowsIfParamsMissing() throws Exception {
+    public void testOnWebViewEventThrowsIfParamsMissing() throws Exception {
         assertThrows(
                 NullPointerException.class,
                 () -> {
                     mBinder.onRequest(
-                            Constants.OP_EVENT, null,
+                            Constants.OP_WEB_VIEW_EVENT, null,
                             new TestServiceCallback());
                 });
     }
 
     @Test
-    public void testOnEventThrowsIfInputMissing() throws Exception {
+    public void testOnWebViewEventThrowsIfInputMissing() throws Exception {
         Bundle params = new Bundle();
         params.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new TestDataAccessService());
         assertThrows(
                 NullPointerException.class,
                 () -> {
                     mBinder.onRequest(
-                            Constants.OP_EVENT, params,
+                            Constants.OP_WEB_VIEW_EVENT, params,
                             new TestServiceCallback());
                 });
     }
 
     @Test
-    public void testOnEventThrowsIfDataAccessServiceMissing() throws Exception {
+    public void testOnWebViewEventThrowsIfDataAccessServiceMissing() throws Exception {
         Bundle params = new Bundle();
         params.putParcelable(
-                Constants.EXTRA_INPUT, new EventInput.Builder().build());
+                Constants.EXTRA_INPUT,
+                new WebViewEventInput.Builder().setParameters(PersistableBundle.EMPTY).build());
         assertThrows(
                 NullPointerException.class,
                 () -> {
                     mBinder.onRequest(
-                            Constants.OP_EVENT, params,
+                            Constants.OP_WEB_VIEW_EVENT, params,
                             new TestServiceCallback());
                 });
     }
 
     @Test
-    public void testOnEventThrowsIfCallbackMissing() throws Exception {
+    public void testOnWebViewEventThrowsIfCallbackMissing() throws Exception {
         Bundle params = new Bundle();
         params.putParcelable(
-                Constants.EXTRA_INPUT, new EventInput.Builder().build());
+                Constants.EXTRA_INPUT,
+                new WebViewEventInput.Builder().setParameters(PersistableBundle.EMPTY).build());
         params.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new TestDataAccessService());
         assertThrows(
                 NullPointerException.class,
                 () -> {
                     mBinder.onRequest(
-                            Constants.OP_EVENT, params, null);
+                            Constants.OP_WEB_VIEW_EVENT, params, null);
                 });
     }
 
-    class TestHandler implements IsolatedComputationHandler {
+    class TestHandler implements IsolatedComputationCallback {
         @Override public void onExecute(
                 ExecuteInput input,
-                OnDevicePersonalizationContext odpContext,
                 Consumer<ExecuteOutput> consumer
         ) {
             mSelectContentCalled = true;
             if (input.getAppParams() != null && input.getAppParams().getInt("error") > 0) {
                 consumer.accept(null);
             } else {
+                ContentValues row = new ContentValues();
+                row.put("a", 5);
                 consumer.accept(
                         new ExecuteOutput.Builder()
-                        .addSlotResults(
-                            new SlotResult.Builder()
-                                .addRenderedBidKeys("123")
-                                .addLoggedBids(
-                                    new Bid.Builder()
-                                    .setKey("123")
-                                    .build()
-                                )
-                                .build()
-                        )
+                        .setRequestLogRecord(new RequestLogRecord.Builder().addRows(row).build())
+                        .addRenderingDataList(new RenderingData.Builder().addKeys("123").build())
                         .build());
             }
         }
 
         @Override public void onDownload(
                 DownloadInput input,
-                OnDevicePersonalizationContext odpContext,
                 Consumer<DownloadOutput> consumer
         ) {
             mOnDownloadCalled = true;
@@ -493,11 +494,11 @@ public class IsolatedComputationServiceTest {
 
         @Override public void onRender(
                 RenderInput input,
-                OnDevicePersonalizationContext odpContext,
                 Consumer<RenderOutput> consumer
         ) {
-            mRenderContentCalled = true;
-            if (input.getBidKeys().size() >= 1 && input.getBidKeys().get(0).equals("z")) {
+            mOnRenderCalled = true;
+            if (input.getRenderingData().getKeys().size() >= 1
+                        && input.getRenderingData().getKeys().get(0).equals("z")) {
                 consumer.accept(null);
             } else {
                 consumer.accept(
@@ -505,26 +506,30 @@ public class IsolatedComputationServiceTest {
             }
         }
 
-        @Override public void onEvent(
-                EventInput input,
-                OnDevicePersonalizationContext odpContext,
-                Consumer<EventOutput> consumer
+        @Override public void onWebViewEvent(
+                WebViewEventInput input,
+                Consumer<WebViewEventOutput> consumer
         ) {
-            mComputeEventMetricsCalled = true;
-            if (input.getEventType() == 9999) {
+            mOnEventCalled = true;
+            int eventType = input.getParameters().getInt(EVENT_TYPE_KEY);
+            if (eventType == 9999) {
                 consumer.accept(null);
             } else {
                 consumer.accept(
-                        new EventOutput.Builder()
-                        .setMetrics(
-                            new Metrics.Builder().setLongValues(2468).build())
+                        new WebViewEventOutput.Builder()
+                        .setEventLogRecord(
+                            new EventLogRecord.Builder()
+                                .setType(1)
+                                .setRowIndex(2)
+                                .setData(new ContentValues())
+                                .build())
                         .build());
             }
         }
     }
 
     class TestService extends IsolatedComputationService {
-        @Override public IsolatedComputationHandler getHandler() {
+        @Override public IsolatedComputationCallback createCallback(RequestToken token) {
             return new TestHandler();
         }
     }

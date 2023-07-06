@@ -17,6 +17,7 @@
 package android.ondevicepersonalization;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.Service;
 import android.content.Intent;
 import android.ondevicepersonalization.aidl.IDataAccessService;
@@ -26,7 +27,8 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.util.Log;
+
+import com.android.ondevicepersonalization.internal.util.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,8 +43,8 @@ import java.util.function.Consumer;
  */
 public abstract class IsolatedComputationService extends Service {
     private static final String TAG = "IsolatedComputationService";
+    private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
     private IBinder mBinder;
-    @NonNull private final IsolatedComputationHandler mHandler = getHandler();
 
     @Override public void onCreate() {
         mBinder = new ServiceBinder();
@@ -53,9 +55,35 @@ public abstract class IsolatedComputationService extends Service {
     }
 
     /**
-     * Return an instance of {@link IsolatedComputationHandler} that handles client requests.
+     * Return an instance of {@link IsolatedComputationCallback} that handles client requests.
      */
-    @NonNull public abstract IsolatedComputationHandler getHandler();
+    @NonNull public abstract IsolatedComputationCallback createCallback(RequestToken requestToken);
+
+    /**
+     * Returns a DAO for the REMOTE_DATA table.
+     * @return A {@link KeyValueStore} object that provides access to the REMOTE_DATA table.
+     */
+    @NonNull public KeyValueStore getRemoteData(RequestToken requestToken) {
+        return new RemoteDataImpl(requestToken.getDataAccessService());
+    }
+
+    /**
+     * Returns a DAO for the LOCAL_DATA table.
+     * @return A {@link MutableKeyValueStore} object that provides access to the LOCAL_DATA table.
+     */
+    @NonNull public MutableKeyValueStore getLocalData(RequestToken requestToken) {
+        return new LocalDataImpl(requestToken.getDataAccessService());
+    }
+
+    /** Returns an {@link EventUrlProvider} for the current request. */
+    @NonNull public EventUrlProvider getEventUrlProvider(RequestToken requestToken) {
+        return new EventUrlProvider(requestToken.getDataAccessService());
+    }
+
+    /** Returns the most recent {@link UserData}. */
+    @Nullable public UserData getUserData(RequestToken requestToken) {
+        return requestToken.getUserData();
+    }
 
     // TODO(b/228200518): Add onBidRequest()/onBidResponse() methods.
 
@@ -63,9 +91,9 @@ public abstract class IsolatedComputationService extends Service {
         @Override public void onRequest(
                 int operationCode,
                 @NonNull Bundle params,
-                @NonNull IIsolatedComputationServiceCallback callback) {
+                @NonNull IIsolatedComputationServiceCallback resultCallback) {
             Objects.requireNonNull(params);
-            Objects.requireNonNull(callback);
+            Objects.requireNonNull(resultCallback);
             // TODO(b/228200518): Ensure that caller is ODP Service.
 
             if (operationCode == Constants.OP_EXECUTE) {
@@ -77,10 +105,12 @@ public abstract class IsolatedComputationService extends Service {
                         IDataAccessService.Stub.asInterface(Objects.requireNonNull(
                             params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 Objects.requireNonNull(binder);
-                OnDevicePersonalizationContext odpContext =
-                        new OnDevicePersonalizationContextImpl(binder);
-                mHandler.onExecute(
-                        input, odpContext, new WrappedCallback<ExecuteOutput>(callback));
+                UserData userData = params.getParcelable(
+                        Constants.EXTRA_USER_DATA, UserData.class);
+                RequestToken requestToken = new RequestToken(binder, userData);
+                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                implCallback.onExecute(
+                        input, new WrappedCallback<ExecuteOutput>(resultCallback));
 
             } else if (operationCode == Constants.OP_DOWNLOAD) {
 
@@ -107,37 +137,40 @@ public abstract class IsolatedComputationService extends Service {
                         IDataAccessService.Stub.asInterface(Objects.requireNonNull(
                             params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 Objects.requireNonNull(binder);
-                OnDevicePersonalizationContext odpContext =
-                        new OnDevicePersonalizationContextImpl(binder);
-                mHandler.onDownload(
-                        downloadInput, odpContext, new WrappedCallback<DownloadOutput>(callback));
+                UserData userData = params.getParcelable(
+                        Constants.EXTRA_USER_DATA, UserData.class);
+                RequestToken requestToken = new RequestToken(binder, userData);
+                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                implCallback.onDownload(
+                        downloadInput, new WrappedCallback<DownloadOutput>(resultCallback));
 
             } else if (operationCode == Constants.OP_RENDER) {
 
                 RenderInput input = Objects.requireNonNull(
                         params.getParcelable(Constants.EXTRA_INPUT, RenderInput.class));
-                Objects.requireNonNull(input.getSlotInfo());
-                Objects.requireNonNull(input.getBidKeys());
+                Objects.requireNonNull(input.getRenderingData());
                 IDataAccessService binder =
                         IDataAccessService.Stub.asInterface(Objects.requireNonNull(
                             params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
                 Objects.requireNonNull(binder);
-                OnDevicePersonalizationContext odpContext =
-                        new OnDevicePersonalizationContextImpl(binder);
-                mHandler.onRender(
-                        input, odpContext, new WrappedCallback<RenderOutput>(callback));
+                RequestToken requestToken = new RequestToken(binder, null);
+                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                implCallback.onRender(
+                        input, new WrappedCallback<RenderOutput>(resultCallback));
 
-            } else if (operationCode == Constants.OP_EVENT) {
+            } else if (operationCode == Constants.OP_WEB_VIEW_EVENT) {
 
-                EventInput input = Objects.requireNonNull(
-                        params.getParcelable(Constants.EXTRA_INPUT, EventInput.class));
+                WebViewEventInput input = Objects.requireNonNull(
+                        params.getParcelable(Constants.EXTRA_INPUT, WebViewEventInput.class));
                 IDataAccessService binder =
                         IDataAccessService.Stub.asInterface(Objects.requireNonNull(
                             params.getBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER)));
-                OnDevicePersonalizationContext odpContext =
-                        new OnDevicePersonalizationContextImpl(binder);
-                mHandler.onEvent(
-                        input, odpContext, new WrappedCallback<EventOutput>(callback));
+                UserData userData = params.getParcelable(
+                        Constants.EXTRA_USER_DATA, UserData.class);
+                RequestToken requestToken = new RequestToken(binder, userData);
+                IsolatedComputationCallback implCallback = createCallback(requestToken);
+                implCallback.onWebViewEvent(
+                        input, new WrappedCallback<WebViewEventOutput>(resultCallback));
 
             } else {
                 throw new IllegalArgumentException("Invalid op code: " + operationCode);
@@ -156,7 +189,7 @@ public abstract class IsolatedComputationService extends Service {
                 try {
                     mCallback.onError(Constants.STATUS_INTERNAL_ERROR);
                 } catch (RemoteException e) {
-                    Log.w(TAG, "Callback failed.", e);
+                    sLogger.w(TAG + ": Callback failed.", e);
                 }
             } else {
                 Bundle bundle = new Bundle();
@@ -164,7 +197,7 @@ public abstract class IsolatedComputationService extends Service {
                 try {
                     mCallback.onSuccess(bundle);
                 } catch (RemoteException e) {
-                    Log.w(TAG, "Callback failed.", e);
+                    sLogger.w(TAG + ": Callback failed.", e);
                 }
             }
         }

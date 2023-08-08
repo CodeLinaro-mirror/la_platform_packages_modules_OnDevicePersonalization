@@ -17,21 +17,21 @@
 package com.example.odpsamplenetwork;
 
 import android.annotation.NonNull;
+import android.app.ondevicepersonalization.DownloadInput;
+import android.app.ondevicepersonalization.DownloadOutput;
+import android.app.ondevicepersonalization.EventLogRecord;
+import android.app.ondevicepersonalization.EventUrlProvider;
+import android.app.ondevicepersonalization.ExecuteInput;
+import android.app.ondevicepersonalization.ExecuteOutput;
+import android.app.ondevicepersonalization.IsolatedComputationCallback;
+import android.app.ondevicepersonalization.KeyValueStore;
+import android.app.ondevicepersonalization.RenderInput;
+import android.app.ondevicepersonalization.RenderOutput;
+import android.app.ondevicepersonalization.RenderingConfig;
+import android.app.ondevicepersonalization.RequestLogRecord;
+import android.app.ondevicepersonalization.WebViewEventInput;
+import android.app.ondevicepersonalization.WebViewEventOutput;
 import android.content.ContentValues;
-import android.ondevicepersonalization.DownloadInput;
-import android.ondevicepersonalization.DownloadOutput;
-import android.ondevicepersonalization.EventLogRecord;
-import android.ondevicepersonalization.EventUrlProvider;
-import android.ondevicepersonalization.ExecuteInput;
-import android.ondevicepersonalization.ExecuteOutput;
-import android.ondevicepersonalization.IsolatedComputationCallback;
-import android.ondevicepersonalization.KeyValueStore;
-import android.ondevicepersonalization.RenderInput;
-import android.ondevicepersonalization.RenderOutput;
-import android.ondevicepersonalization.RenderingData;
-import android.ondevicepersonalization.RequestLogRecord;
-import android.ondevicepersonalization.WebViewEventInput;
-import android.ondevicepersonalization.WebViewEventOutput;
 import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.StrictMode;
@@ -46,6 +46,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.setfilters.cuckoofilter.CuckooFilter;
 
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
@@ -96,7 +97,7 @@ public class SampleHandler implements IsolatedComputationCallback {
         Log.d(TAG, "onDownload() started.");
         DownloadOutput downloadResult =
                 new DownloadOutput.Builder()
-                        .setKeysToRetain(getFilteredKeys(input.getData()))
+                        .setRetainedKeys(getFilteredKeys(input.getData()))
                         .build();
         consumer.accept(downloadResult);
     }
@@ -152,6 +153,16 @@ public class SampleHandler implements IsolatedComputationCallback {
                 return false;
             }
         }
+        if (ad.mTargetKeywordFilter != null) {
+            if (!ad.mTargetKeywordFilter.contains(requestKeyword)) {
+                return false;
+            }
+        }
+        if (ad.mExcludeKeywordFilter != null) {
+            if (ad.mExcludeKeywordFilter.contains(requestKeyword)) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -197,8 +208,8 @@ public class SampleHandler implements IsolatedComputationCallback {
         Log.d(TAG, "buildResult() called.");
         ContentValues logData = createLogRecord(ad.mId, ad.mPrice, ad.mPrice * 10.0);
         return new ExecuteOutput.Builder()
-                .setRequestLogRecord(new RequestLogRecord.Builder().addRows(logData).build())
-                .addRenderingDataList(new RenderingData.Builder().addKeys(ad.mId).build())
+                .setRequestLogRecord(new RequestLogRecord.Builder().addRow(logData).build())
+                .addRenderingConfig(new RenderingConfig.Builder().addKey(ad.mId).build())
                 .build();
     }
 
@@ -291,7 +302,7 @@ public class SampleHandler implements IsolatedComputationCallback {
     ) {
         try {
             Log.d(TAG, "handleOnRender() started.");
-            String id = input.getRenderingData().getKeys().get(0);
+            String id = input.getRenderingConfig().getKeys().get(0);
             var adFuture = readAd(id, mRemoteData);
             var impUrlFuture = getImpressionTrackingUrl();
             var clickUrlFuture = FluentFuture.from(adFuture).transformAsync(
@@ -423,8 +434,12 @@ public class SampleHandler implements IsolatedComputationCallback {
         final String mLandingPage;
         final String mText;
         final String mTemplateId;
+        final CuckooFilter<String> mTargetKeywordFilter;
+        final CuckooFilter<String> mExcludeKeywordFilter;
         Ad(String id, double price, String targetKeyword, String excludeKeyword,
-                String landingPage, String text, String templateId) {
+                String landingPage, String text, String templateId,
+                CuckooFilter<String> targetKeywordFilter,
+                CuckooFilter<String> excludeKeywordFilter) {
             mId = id;
             mPrice = price;
             mTargetKeyword = targetKeyword;
@@ -432,6 +447,8 @@ public class SampleHandler implements IsolatedComputationCallback {
             mLandingPage = landingPage;
             mText = text;
             mTemplateId = templateId;
+            mTargetKeywordFilter = targetKeywordFilter;
+            mExcludeKeywordFilter = excludeKeywordFilter;
         }
     }
 
@@ -450,6 +467,8 @@ public class SampleHandler implements IsolatedComputationCallback {
             String landingPage = "";
             String text = "Click Here!";
             String templateId = null;
+            CuckooFilter<String> targetKeywordFilter = null;
+            CuckooFilter<String> excludeKeywordFilter = null;
             while (reader.hasNext()) {
                 String name = reader.nextName();
                 if (name.equals("price")) {
@@ -464,12 +483,18 @@ public class SampleHandler implements IsolatedComputationCallback {
                     text = reader.nextString();
                 } else if (name.equals("template")) {
                     templateId = reader.nextString();
+                } else if (name.equals("keywordFilter")) {
+                    targetKeywordFilter = CuckooFilterUtil.createCuckooFilter(reader.nextString());
+                } else if (name.equals("excludeKeywordFilter")) {
+                    excludeKeywordFilter = CuckooFilterUtil.createCuckooFilter(
+                            reader.nextString());
                 } else {
                     reader.skipValue();
                 }
             }
             reader.endObject();
-            return new Ad(id, price, targetKeyword, excludeKeyword, landingPage, text, templateId);
+            return new Ad(id, price, targetKeyword, excludeKeyword, landingPage, text, templateId,
+                    targetKeywordFilter, excludeKeywordFilter);
         } catch (Exception e) {
             Log.e(TAG, "parseAd() failed.", e);
             return null;

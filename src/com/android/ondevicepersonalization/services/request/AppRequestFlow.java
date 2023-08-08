@@ -17,18 +17,18 @@
 package com.android.ondevicepersonalization.services.request;
 
 import android.annotation.NonNull;
+import android.app.ondevicepersonalization.Constants;
+import android.app.ondevicepersonalization.ExecuteInput;
+import android.app.ondevicepersonalization.ExecuteOutput;
+import android.app.ondevicepersonalization.OnDevicePersonalizationException;
+import android.app.ondevicepersonalization.RenderingConfig;
+import android.app.ondevicepersonalization.UserData;
+import android.app.ondevicepersonalization.aidl.IExecuteCallback;
 import android.content.ComponentName;
 import android.content.Context;
-import android.ondevicepersonalization.Constants;
-import android.ondevicepersonalization.ExecuteInput;
-import android.ondevicepersonalization.ExecuteOutput;
-import android.ondevicepersonalization.OnDevicePersonalizationException;
-import android.ondevicepersonalization.RenderingData;
-import android.ondevicepersonalization.aidl.IExecuteCallback;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
-
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
@@ -38,6 +38,7 @@ import com.android.ondevicepersonalization.services.data.events.EventsDao;
 import com.android.ondevicepersonalization.services.data.events.Query;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfig;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
+import com.android.ondevicepersonalization.services.policyengine.UserDataAccessor;
 import com.android.ondevicepersonalization.services.process.IsolatedServiceInfo;
 import com.android.ondevicepersonalization.services.process.ProcessUtils;
 import com.android.ondevicepersonalization.services.util.CryptUtils;
@@ -183,6 +184,9 @@ public class AppRequestFlow {
         DataAccessServiceImpl binder = new DataAccessServiceImpl(
                 mService.getPackageName(), mContext, true);
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
+        UserDataAccessor userDataAccessor = new UserDataAccessor();
+        UserData userData = userDataAccessor.getUserData();
+        serviceParams.putParcelable(Constants.EXTRA_USER_DATA, userData);
         return ProcessUtils.runIsolatedService(
                 isolatedServiceInfo, mServiceClassName, Constants.OP_EXECUTE, serviceParams);
     }
@@ -211,24 +215,24 @@ public class AppRequestFlow {
             sLogger.d(TAG + ": createTokens() started.");
             ExecuteOutput result = Futures.getDone(resultFuture);
             long queryId = Futures.getDone(queryIdFuture);
-            List<RenderingData> slotResults = result.getRenderingDataList();
-            Objects.requireNonNull(slotResults);
+            List<RenderingConfig> renderingConfigs = result.getRenderingConfigs();
+            Objects.requireNonNull(renderingConfigs);
 
-            List<String> slotResultTokens = new ArrayList<String>();
+            List<String> tokens = new ArrayList<String>();
             int slotIndex = 0;
-            for (RenderingData slotResult : slotResults) {
-                if (slotResult == null) {
-                    slotResultTokens.add(null);
+            for (RenderingConfig renderingConfig : renderingConfigs) {
+                if (renderingConfig == null) {
+                    tokens.add(null);
                 } else {
                     SlotWrapper wrapper = new SlotWrapper(
-                            result.getRequestLogRecord(), slotIndex, slotResult,
+                            result.getRequestLogRecord(), slotIndex, renderingConfig,
                             mService.getPackageName(), queryId);
-                    slotResultTokens.add(CryptUtils.encrypt(wrapper));
+                    tokens.add(CryptUtils.encrypt(wrapper));
                 }
                 ++slotIndex;
             }
 
-            return Futures.immediateFuture(slotResultTokens);
+            return Futures.immediateFuture(tokens);
         } catch (Exception e) {
             return Futures.immediateFailedFuture(e);
         }

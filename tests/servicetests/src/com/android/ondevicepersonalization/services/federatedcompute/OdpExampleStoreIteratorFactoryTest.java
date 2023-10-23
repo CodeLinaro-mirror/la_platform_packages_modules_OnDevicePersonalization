@@ -50,9 +50,11 @@ public class OdpExampleStoreIteratorFactoryTest {
     @Test
     public void testNext() {
         List<byte[]> exampleList = new ArrayList<>();
-        exampleList.add(new byte[]{1});
-        OdpExampleStoreIterator it = OdpExampleStoreIteratorFactory.getInstance()
-                .createIterator(exampleList);
+        exampleList.add(new byte[] {1});
+        List<byte[]> tokenList = new ArrayList<>();
+        tokenList.add(new byte[] {2});
+        OdpExampleStoreIterator it =
+                OdpExampleStoreIteratorFactory.getInstance().createIterator(exampleList, tokenList);
         it.next(new TestIteratorCallback());
         assertTrue(mIteratorCallbackOnSuccessCalled);
         assertFalse(mIteratorCallbackOnFailureCalled);

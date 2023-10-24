@@ -16,14 +16,14 @@
 
 package com.example.odpsamplenetwork;
 
-import android.adservices.ondevicepersonalization.AppInstallStatus;
-import android.adservices.ondevicepersonalization.DownloadInput;
-import android.adservices.ondevicepersonalization.DownloadOutput;
+import android.adservices.ondevicepersonalization.AppInfo;
+import android.adservices.ondevicepersonalization.DownloadCompletedInput;
+import android.adservices.ondevicepersonalization.DownloadCompletedOutput;
 import android.adservices.ondevicepersonalization.EventLogRecord;
 import android.adservices.ondevicepersonalization.EventUrlProvider;
 import android.adservices.ondevicepersonalization.ExecuteInput;
 import android.adservices.ondevicepersonalization.ExecuteOutput;
-import android.adservices.ondevicepersonalization.IsolatedComputationCallback;
+import android.adservices.ondevicepersonalization.IsolatedWorker;
 import android.adservices.ondevicepersonalization.KeyValueStore;
 import android.adservices.ondevicepersonalization.RenderInput;
 import android.adservices.ondevicepersonalization.RenderOutput;
@@ -32,8 +32,8 @@ import android.adservices.ondevicepersonalization.RequestLogRecord;
 import android.adservices.ondevicepersonalization.UserData;
 import android.adservices.ondevicepersonalization.WebViewEventInput;
 import android.adservices.ondevicepersonalization.WebViewEventOutput;
-import android.annotation.NonNull;
 import android.content.ContentValues;
+import android.net.Uri;
 import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.StrictMode;
@@ -41,6 +41,8 @@ import android.os.StrictMode.ThreadPolicy;
 import android.util.Base64;
 import android.util.JsonReader;
 import android.util.Log;
+
+import androidx.annotation.NonNull;
 
 import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.Futures;
@@ -61,7 +63,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Consumer;
 
-public class SampleHandler implements IsolatedComputationCallback {
+public class SampleHandler implements IsolatedWorker {
     public static final String TAG = "OdpSampleNetwork";
     public static final int EVENT_TYPE_IMPRESSION = 1;
     public static final int EVENT_TYPE_CLICK = 2;
@@ -104,12 +106,12 @@ public class SampleHandler implements IsolatedComputationCallback {
     }
 
     @Override
-    public void onDownload(
-            @NonNull DownloadInput input,
-            @NonNull Consumer<DownloadOutput> consumer) {
+    public void onDownloadCompleted(
+            @NonNull DownloadCompletedInput input,
+            @NonNull Consumer<DownloadCompletedOutput> consumer) {
         Log.d(TAG, "onDownload() started.");
-        DownloadOutput downloadResult =
-                new DownloadOutput.Builder()
+        DownloadCompletedOutput downloadResult =
+                new DownloadCompletedOutput.Builder()
                         .setRetainedKeys(getFilteredKeys(input.getData()))
                         .build();
         consumer.accept(downloadResult);
@@ -276,8 +278,8 @@ public class SampleHandler implements IsolatedComputationCallback {
         try {
             PersistableBundle eventParams = new PersistableBundle();
             eventParams.putInt(EVENT_TYPE_KEY, EVENT_TYPE_IMPRESSION);
-            String url = mEventUrlProvider.getEventTrackingUrl(
-                    eventParams, TRANSPARENT_PNG_BYTES, "image/png");
+            String url = mEventUrlProvider.createEventTrackingUrlWithResponse(
+                    eventParams, TRANSPARENT_PNG_BYTES, "image/png").toString();
             return Futures.immediateFuture(url);
         } catch (Exception e) {
             return Futures.immediateFailedFuture(e);
@@ -289,8 +291,8 @@ public class SampleHandler implements IsolatedComputationCallback {
         try {
             PersistableBundle eventParams = new PersistableBundle();
             eventParams.putInt(EVENT_TYPE_KEY, EVENT_TYPE_CLICK);
-            String url = mEventUrlProvider.getEventTrackingUrlWithRedirect(
-                    eventParams, landingPage);
+            String url = mEventUrlProvider.createEventTrackingUrlWithRedirect(
+                    eventParams, Uri.parse(landingPage)).toString();
             return Futures.immediateFuture(url);
         } catch (Exception e) {
             return Futures.immediateFailedFuture(e);
@@ -412,8 +414,7 @@ public class SampleHandler implements IsolatedComputationCallback {
             return false;
         }
 
-        if (mUserData.getAppInstalledHistory() == null
-                || mUserData.getAppInstalledHistory().isEmpty()) {
+        if (mUserData.getAppInfos() == null || mUserData.getAppInfos().isEmpty()) {
             Log.i(TAG, "No installed apps.");
             return false;
         }
@@ -422,8 +423,8 @@ public class SampleHandler implements IsolatedComputationCallback {
             return false;
         }
 
-        for (String app: mUserData.getAppInstalledHistory().keySet()) {
-            AppInstallStatus value = mUserData.getAppInstalledHistory().get(app);
+        for (String app: mUserData.getAppInfos().keySet()) {
+            AppInfo value = mUserData.getAppInfos().get(app);
             if (value != null && value.isInstalled() && filter.contains(app)) {
                 return true;
             }
@@ -438,8 +439,7 @@ public class SampleHandler implements IsolatedComputationCallback {
             return false;
         }
 
-        if (mUserData.getAppInstalledHistory() == null
-                || mUserData.getAppInstalledHistory().isEmpty()) {
+        if (mUserData.getAppInfos() == null || mUserData.getAppInfos().isEmpty()) {
             Log.i(TAG, "No installed apps.");
             return false;
         }
@@ -448,7 +448,7 @@ public class SampleHandler implements IsolatedComputationCallback {
             return false;
         }
 
-        for (String app: mUserData.getAppInstalledHistory().keySet()) {
+        for (String app: mUserData.getAppInfos().keySet()) {
             if (apps.contains(app)) {
                 return true;
             }

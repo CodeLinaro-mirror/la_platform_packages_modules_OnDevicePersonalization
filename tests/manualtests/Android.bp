@@ -23,6 +23,7 @@ android_test {
         ":ondevicepersonalization-sources",
         ":ondevicepersonalization-fbs",
         ":chronicle-sources",
+        ":statslog-ondevicepersonalization-java-gen",
     ],
     libs: [
         "android.test.base",
@@ -31,9 +32,10 @@ android_test {
         "framework-configinfrastructure",
         "framework-connectivity.stubs.module_lib",
         "framework-location.stubs.module_lib",
-	"kotlin-annotations",
-        "truth-prebuilt",
+        "kotlin-annotations",
+        "truth",
         "framework-ondevicepersonalization.impl",
+        "framework-statsd.stubs.module_lib", // For WW logging
     ],
     static_libs: [
         "androidx.test.ext.junit",

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 The Android Open Source Project
+ * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,23 +16,20 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.Nullable;
+import android.annotation.NonNull;
 import android.os.Parcelable;
 
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
 /**
- *  The result returned by {@link IsolatedWorker#onWebViewEvent()}
- *
- */
+ * Wrapper class for additional information passed to IPC requests.
+*
+* @hide
+*/
 @DataClass(genBuilder = true, genEqualsHashCode = true)
-public final class WebViewEventOutput implements Parcelable {
-    /**
-     * An {@link EventLogRecord} to be written to the EVENTS table, if not null. Each
-     * {@link EventLogRecord} is associated with a row in an existing {@link RequestLogRecord} that
-     * has been written to the REQUESTS table.
-     */
-    @Nullable EventLogRecord mEventLogRecord = null;
+public final class CallerMetadata implements Parcelable {
+    /** Start time of the operation. */
+    private long mStartTimeMillis = 0;
 
 
 
@@ -42,7 +39,7 @@ public final class WebViewEventOutput implements Parcelable {
     // CHECKSTYLE:OFF Generated code
     //
     // To regenerate run:
-    // $ codegen $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/WebViewEventOutput.java
+    // $ codegen $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/CallerMetadata.java
     //
     // To exclude the generated code from IntelliJ auto-formatting enable (one-time):
     //   Settings > Editor > Code Style > Formatter Control
@@ -50,37 +47,35 @@ public final class WebViewEventOutput implements Parcelable {
 
 
     @DataClass.Generated.Member
-    /* package-private */ WebViewEventOutput(
-            @Nullable EventLogRecord eventLogRecord) {
-        this.mEventLogRecord = eventLogRecord;
+    /* package-private */ CallerMetadata(
+            long startTimeMillis) {
+        this.mStartTimeMillis = startTimeMillis;
 
         // onConstructed(); // You can define this method to get a callback
     }
 
     /**
-     * An {@link EventLogRecord} to be written to the EVENTS table, if not null. Each
-     * {@link EventLogRecord} is associated with a row in an existing {@link RequestLogRecord} that
-     * has been written to the REQUESTS table.
+     * Start time of the operation.
      */
     @DataClass.Generated.Member
-    public @Nullable EventLogRecord getEventLogRecord() {
-        return mEventLogRecord;
+    public long getStartTimeMillis() {
+        return mStartTimeMillis;
     }
 
     @Override
     @DataClass.Generated.Member
-    public boolean equals(@Nullable Object o) {
+    public boolean equals(@android.annotation.Nullable Object o) {
         // You can override field equality logic by defining either of the methods like:
-        // boolean fieldNameEquals(WebViewEventOutput other) { ... }
+        // boolean fieldNameEquals(CallerMetadata other) { ... }
         // boolean fieldNameEquals(FieldType otherValue) { ... }
 
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         @SuppressWarnings("unchecked")
-        WebViewEventOutput that = (WebViewEventOutput) o;
+        CallerMetadata that = (CallerMetadata) o;
         //noinspection PointlessBooleanExpression
         return true
-                && java.util.Objects.equals(mEventLogRecord, that.mEventLogRecord);
+                && mStartTimeMillis == that.mStartTimeMillis;
     }
 
     @Override
@@ -90,20 +85,17 @@ public final class WebViewEventOutput implements Parcelable {
         // int fieldNameHashCode() { ... }
 
         int _hash = 1;
-        _hash = 31 * _hash + java.util.Objects.hashCode(mEventLogRecord);
+        _hash = 31 * _hash + Long.hashCode(mStartTimeMillis);
         return _hash;
     }
 
     @Override
     @DataClass.Generated.Member
-    public void writeToParcel(@android.annotation.NonNull android.os.Parcel dest, int flags) {
+    public void writeToParcel(@NonNull android.os.Parcel dest, int flags) {
         // You can override field parcelling by defining methods like:
         // void parcelFieldName(Parcel dest, int flags) { ... }
 
-        byte flg = 0;
-        if (mEventLogRecord != null) flg |= 0x1;
-        dest.writeByte(flg);
-        if (mEventLogRecord != null) dest.writeTypedObject(mEventLogRecord, flags);
+        dest.writeLong(mStartTimeMillis);
     }
 
     @Override
@@ -113,40 +105,39 @@ public final class WebViewEventOutput implements Parcelable {
     /** @hide */
     @SuppressWarnings({"unchecked", "RedundantCast"})
     @DataClass.Generated.Member
-    /* package-private */ WebViewEventOutput(@android.annotation.NonNull android.os.Parcel in) {
+    /* package-private */ CallerMetadata(@NonNull android.os.Parcel in) {
         // You can override field unparcelling by defining methods like:
         // static FieldType unparcelFieldName(Parcel in) { ... }
 
-        byte flg = in.readByte();
-        EventLogRecord eventLogRecord = (flg & 0x1) == 0 ? null : (EventLogRecord) in.readTypedObject(EventLogRecord.CREATOR);
+        long startTimeMillis = in.readLong();
 
-        this.mEventLogRecord = eventLogRecord;
+        this.mStartTimeMillis = startTimeMillis;
 
         // onConstructed(); // You can define this method to get a callback
     }
 
     @DataClass.Generated.Member
-    public static final @android.annotation.NonNull Parcelable.Creator<WebViewEventOutput> CREATOR
-            = new Parcelable.Creator<WebViewEventOutput>() {
+    public static final @NonNull Parcelable.Creator<CallerMetadata> CREATOR
+            = new Parcelable.Creator<CallerMetadata>() {
         @Override
-        public WebViewEventOutput[] newArray(int size) {
-            return new WebViewEventOutput[size];
+        public CallerMetadata[] newArray(int size) {
+            return new CallerMetadata[size];
         }
 
         @Override
-        public WebViewEventOutput createFromParcel(@android.annotation.NonNull android.os.Parcel in) {
-            return new WebViewEventOutput(in);
+        public CallerMetadata createFromParcel(@NonNull android.os.Parcel in) {
+            return new CallerMetadata(in);
         }
     };
 
     /**
-     * A builder for {@link WebViewEventOutput}
+     * A builder for {@link CallerMetadata}
      */
     @SuppressWarnings("WeakerAccess")
     @DataClass.Generated.Member
     public static final class Builder {
 
-        private @Nullable EventLogRecord mEventLogRecord;
+        private long mStartTimeMillis;
 
         private long mBuilderFieldsSet = 0L;
 
@@ -154,28 +145,26 @@ public final class WebViewEventOutput implements Parcelable {
         }
 
         /**
-         * An {@link EventLogRecord} to be written to the EVENTS table, if not null. Each
-         * {@link EventLogRecord} is associated with a row in an existing {@link RequestLogRecord} that
-         * has been written to the REQUESTS table.
+         * Start time of the operation.
          */
         @DataClass.Generated.Member
-        public @android.annotation.NonNull Builder setEventLogRecord(@android.annotation.NonNull EventLogRecord value) {
+        public @NonNull Builder setStartTimeMillis(long value) {
             checkNotUsed();
             mBuilderFieldsSet |= 0x1;
-            mEventLogRecord = value;
+            mStartTimeMillis = value;
             return this;
         }
 
         /** Builds the instance. This builder should not be touched after calling this! */
-        public @android.annotation.NonNull WebViewEventOutput build() {
+        public @NonNull CallerMetadata build() {
             checkNotUsed();
             mBuilderFieldsSet |= 0x2; // Mark builder used
 
             if ((mBuilderFieldsSet & 0x1) == 0) {
-                mEventLogRecord = null;
+                mStartTimeMillis = 0;
             }
-            WebViewEventOutput o = new WebViewEventOutput(
-                    mEventLogRecord);
+            CallerMetadata o = new CallerMetadata(
+                    mStartTimeMillis);
             return o;
         }
 
@@ -188,10 +177,10 @@ public final class WebViewEventOutput implements Parcelable {
     }
 
     @DataClass.Generated(
-            time = 1692118441223L,
+            time = 1696884555838L,
             codegenVersion = "1.0.23",
-            sourceFile = "packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/WebViewEventOutput.java",
-            inputSignatures = " @android.annotation.Nullable android.adservices.ondevicepersonalization.EventLogRecord mEventLogRecord\nclass WebViewEventOutput extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)")
+            sourceFile = "packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/CallerMetadata.java",
+            inputSignatures = "private  long mStartTimeMillis\nclass CallerMetadata extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)")
     @Deprecated
     private void __metadata() {}
 

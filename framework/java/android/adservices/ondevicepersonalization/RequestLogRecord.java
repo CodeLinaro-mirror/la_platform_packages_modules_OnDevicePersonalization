@@ -16,6 +16,9 @@
 
 package android.adservices.ondevicepersonalization;
 
+import static android.adservices.ondevicepersonalization.Constants.KEY_ENABLE_ONDEVICEPERSONALIZATION_APIS;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.content.ContentValues;
 import android.os.Parcelable;
@@ -29,12 +32,14 @@ import java.util.List;
 // TODO(b/289102463): Add a link to the public doc for the REQUESTS table when available.
 /**
  * Contains data that will be written to the REQUESTS table at the end of a call to
- * {@link IsolatedWorker#onExecute()}. A single {$link RequestLogRecord} is appended to the
+ * {@link IsolatedWorker#onExecute(ExecuteInput, java.util.function.Consumer)}.
+ * A single {@link RequestLogRecord} is appended to the
  * REQUESTS table if it is provided as a part of {@link ExecuteOutput}. The contents of
  * the REQUESTS table can be consumed by Federated Learning facilitated model training,
  * or Federated Analytics facilitated cross-device statistical analysis.
  *
  */
+@FlaggedApi(KEY_ENABLE_ONDEVICEPERSONALIZATION_APIS)
 @DataClass(genBuilder = true, genEqualsHashCode = true)
 public final class RequestLogRecord implements Parcelable {
     /**
@@ -48,6 +53,19 @@ public final class RequestLogRecord implements Parcelable {
      * @hide
      */
     private long mRequestId = 0;
+
+    /**
+     * Time of the request in milliseconds
+     * @hide
+     */
+    private long mTimeMillis = 0;
+
+    abstract static class BaseBuilder {
+        /**
+         * @hide
+         */
+        public abstract Builder setTimeMillis(long value);
+    }
 
 
 
@@ -67,11 +85,13 @@ public final class RequestLogRecord implements Parcelable {
     @DataClass.Generated.Member
     /* package-private */ RequestLogRecord(
             @NonNull List<ContentValues> rows,
-            long requestId) {
+            long requestId,
+            long timeMillis) {
         this.mRows = rows;
         AnnotationValidations.validate(
                 NonNull.class, null, mRows);
         this.mRequestId = requestId;
+        this.mTimeMillis = timeMillis;
 
         // onConstructed(); // You can define this method to get a callback
     }
@@ -94,6 +114,16 @@ public final class RequestLogRecord implements Parcelable {
         return mRequestId;
     }
 
+    /**
+     * Time of the request in milliseconds
+     *
+     * @hide
+     */
+    @DataClass.Generated.Member
+    public long getTimeMillis() {
+        return mTimeMillis;
+    }
+
     @Override
     @DataClass.Generated.Member
     public boolean equals(@android.annotation.Nullable Object o) {
@@ -108,7 +138,8 @@ public final class RequestLogRecord implements Parcelable {
         //noinspection PointlessBooleanExpression
         return true
                 && java.util.Objects.equals(mRows, that.mRows)
-                && mRequestId == that.mRequestId;
+                && mRequestId == that.mRequestId
+                && mTimeMillis == that.mTimeMillis;
     }
 
     @Override
@@ -120,6 +151,7 @@ public final class RequestLogRecord implements Parcelable {
         int _hash = 1;
         _hash = 31 * _hash + java.util.Objects.hashCode(mRows);
         _hash = 31 * _hash + Long.hashCode(mRequestId);
+        _hash = 31 * _hash + Long.hashCode(mTimeMillis);
         return _hash;
     }
 
@@ -131,6 +163,7 @@ public final class RequestLogRecord implements Parcelable {
 
         dest.writeParcelableList(mRows, flags);
         dest.writeLong(mRequestId);
+        dest.writeLong(mTimeMillis);
     }
 
     @Override
@@ -147,11 +180,13 @@ public final class RequestLogRecord implements Parcelable {
         List<ContentValues> rows = new java.util.ArrayList<>();
         in.readParcelableList(rows, ContentValues.class.getClassLoader());
         long requestId = in.readLong();
+        long timeMillis = in.readLong();
 
         this.mRows = rows;
         AnnotationValidations.validate(
                 NonNull.class, null, mRows);
         this.mRequestId = requestId;
+        this.mTimeMillis = timeMillis;
 
         // onConstructed(); // You can define this method to get a callback
     }
@@ -173,20 +208,19 @@ public final class RequestLogRecord implements Parcelable {
     /**
      * A builder for {@link RequestLogRecord}
      */
+    @FlaggedApi(KEY_ENABLE_ONDEVICEPERSONALIZATION_APIS)
     @SuppressWarnings("WeakerAccess")
     @DataClass.Generated.Member
-    public static final class Builder {
+    public static final class Builder extends BaseBuilder {
 
         private @NonNull List<ContentValues> mRows;
         private long mRequestId;
+        private long mTimeMillis;
 
         private long mBuilderFieldsSet = 0L;
 
-        /**
-         * Creates a new Builder.
-         *
-         */
-        public Builder() {}
+        public Builder() {
+        }
 
         /**
          * A List of rows, each containing a {@link ContentValues}.
@@ -220,22 +254,43 @@ public final class RequestLogRecord implements Parcelable {
             return this;
         }
 
+        /**
+         * Time of the request in milliseconds
+         *
+         * @hide
+         */
+        @DataClass.Generated.Member
+        @Override
+        public @NonNull Builder setTimeMillis(long value) {
+            checkNotUsed();
+            mBuilderFieldsSet |= 0x4;
+            mTimeMillis = value;
+            return this;
+        }
+
         /** Builds the instance. This builder should not be touched after calling this! */
         public @NonNull RequestLogRecord build() {
             checkNotUsed();
-            mBuilderFieldsSet |= 0x4; // Mark builder used
+            mBuilderFieldsSet |= 0x8; // Mark builder used
 
             if ((mBuilderFieldsSet & 0x1) == 0) {
                 mRows = Collections.emptyList();
             }
+            if ((mBuilderFieldsSet & 0x2) == 0) {
+                mRequestId = 0;
+            }
+            if ((mBuilderFieldsSet & 0x4) == 0) {
+                mTimeMillis = 0;
+            }
             RequestLogRecord o = new RequestLogRecord(
                     mRows,
-                    mRequestId);
+                    mRequestId,
+                    mTimeMillis);
             return o;
         }
 
         private void checkNotUsed() {
-            if ((mBuilderFieldsSet & 0x4) != 0) {
+            if ((mBuilderFieldsSet & 0x8) != 0) {
                 throw new IllegalStateException(
                         "This Builder should not be reused. Use a new Builder instance instead");
             }
@@ -243,10 +298,10 @@ public final class RequestLogRecord implements Parcelable {
     }
 
     @DataClass.Generated(
-            time = 1696367813020L,
+            time = 1696978492795L,
             codegenVersion = "1.0.23",
             sourceFile = "packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/RequestLogRecord.java",
-            inputSignatures = " @com.android.ondevicepersonalization.internal.util.DataClass.PluralOf(\"row\") @android.annotation.NonNull java.util.List<android.content.ContentValues> mRows\nprivate  long mRequestId\nclass RequestLogRecord extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)")
+            inputSignatures = " @com.android.ondevicepersonalization.internal.util.DataClass.PluralOf(\"row\") @android.annotation.NonNull java.util.List<android.content.ContentValues> mRows\nprivate  long mRequestId\nprivate  long mTimeMillis\nclass RequestLogRecord extends java.lang.Object implements [android.os.Parcelable]\npublic abstract  android.adservices.ondevicepersonalization.RequestLogRecord.Builder setTimeMillis(long)\nclass BaseBuilder extends java.lang.Object implements []\n@com.android.ondevicepersonalization.internal.util.DataClass(genBuilder=true, genEqualsHashCode=true)\npublic abstract  android.adservices.ondevicepersonalization.RequestLogRecord.Builder setTimeMillis(long)\nclass BaseBuilder extends java.lang.Object implements []")
     @Deprecated
     private void __metadata() {}
 

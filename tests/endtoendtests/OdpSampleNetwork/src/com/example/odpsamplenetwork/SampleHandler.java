@@ -19,19 +19,24 @@ package com.example.odpsamplenetwork;
 import android.adservices.ondevicepersonalization.AppInfo;
 import android.adservices.ondevicepersonalization.DownloadCompletedInput;
 import android.adservices.ondevicepersonalization.DownloadCompletedOutput;
+import android.adservices.ondevicepersonalization.EventInput;
 import android.adservices.ondevicepersonalization.EventLogRecord;
+import android.adservices.ondevicepersonalization.EventOutput;
 import android.adservices.ondevicepersonalization.EventUrlProvider;
 import android.adservices.ondevicepersonalization.ExecuteInput;
 import android.adservices.ondevicepersonalization.ExecuteOutput;
+import android.adservices.ondevicepersonalization.FederatedComputeInput;
+import android.adservices.ondevicepersonalization.FederatedComputeScheduler;
 import android.adservices.ondevicepersonalization.IsolatedWorker;
 import android.adservices.ondevicepersonalization.KeyValueStore;
 import android.adservices.ondevicepersonalization.RenderInput;
 import android.adservices.ondevicepersonalization.RenderOutput;
 import android.adservices.ondevicepersonalization.RenderingConfig;
 import android.adservices.ondevicepersonalization.RequestLogRecord;
+import android.adservices.ondevicepersonalization.TrainingExampleInput;
+import android.adservices.ondevicepersonalization.TrainingExampleOutput;
+import android.adservices.ondevicepersonalization.TrainingInterval;
 import android.adservices.ondevicepersonalization.UserData;
-import android.adservices.ondevicepersonalization.WebViewEventInput;
-import android.adservices.ondevicepersonalization.WebViewEventOutput;
 import android.content.ContentValues;
 import android.net.Uri;
 import android.os.PersistableBundle;
@@ -44,17 +49,26 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 
+import com.google.common.base.Strings;
 import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.protobuf.ByteString;
 import com.google.setfilters.cuckoofilter.CuckooFilter;
+
+import org.tensorflow.example.BytesList;
+import org.tensorflow.example.Example;
+import org.tensorflow.example.Feature;
+import org.tensorflow.example.Features;
+import org.tensorflow.example.Int64List;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -88,12 +102,14 @@ public class SampleHandler implements IsolatedWorker {
     private final KeyValueStore mRemoteData;
     private final EventUrlProvider mEventUrlProvider;
     private final UserData mUserData;
+    private final FederatedComputeScheduler mFCScheduler;
 
     SampleHandler(KeyValueStore remoteData, EventUrlProvider eventUrlProvider,
-            UserData userData) {
+            UserData userData, FederatedComputeScheduler fcScheduler) {
         mRemoteData = remoteData;
         mEventUrlProvider = eventUrlProvider;
         mUserData = userData;
+        mFCScheduler = fcScheduler;
         if (mRemoteData == null) {
             Log.e(TAG, "RemoteData missing");
         }
@@ -102,6 +118,9 @@ public class SampleHandler implements IsolatedWorker {
         }
         if (mUserData == null) {
             Log.e(TAG, "UserData missing");
+        }
+        if (mFCScheduler == null) {
+            Log.e(TAG, "Federated Compute Scheduler missing");
         }
     }
 
@@ -125,6 +144,13 @@ public class SampleHandler implements IsolatedWorker {
         sBackgroundExecutor.execute(() -> handleOnExecute(input, consumer));
     }
 
+    @Override public void onTrainingExample(
+            @NonNull TrainingExampleInput input,
+            @NonNull Consumer<TrainingExampleOutput> consumer) {
+        Log.d(TAG, "onTrainingExample() started.");
+        sBackgroundExecutor.execute(() -> handleOnTrainingExample(input, consumer));
+    }
+
     @Override public void onRender(
             @NonNull RenderInput input,
             @NonNull Consumer<RenderOutput> consumer
@@ -133,10 +159,10 @@ public class SampleHandler implements IsolatedWorker {
         sBackgroundExecutor.execute(() -> handleOnRender(input, consumer));
     }
 
-    @Override public void onWebViewEvent(
-            @NonNull WebViewEventInput input,
-            @NonNull Consumer<WebViewEventOutput> consumer) {
-        Log.d(TAG, "onWebViewEvent() started.");
+    @Override public void onEvent(
+            @NonNull EventInput input,
+            @NonNull Consumer<EventOutput> consumer) {
+        Log.d(TAG, "onEvent() started.");
         sBackgroundExecutor.execute(
                 () -> handleOnWebViewEvent(input, consumer));
     }
@@ -244,30 +270,116 @@ public class SampleHandler implements IsolatedWorker {
                 .build();
     }
 
+    static Feature convertStringToFeature(String value) {
+        BytesList.Builder bytesListBuilder = BytesList.newBuilder();
+        String nonNullValue = Strings.nullToEmpty(value);
+        bytesListBuilder.addValue(ByteString.copyFromUtf8(nonNullValue));
+        return Feature.newBuilder().setBytesList(bytesListBuilder.build()).build();
+    }
+
+    static Feature convertLongToFeature(long value) {
+        return Feature.newBuilder()
+            .setInt64List(Int64List.newBuilder().addValue(value).build())
+            .build();
+    }
+
+    private void handleOnTrainingExample(
+            @NonNull TrainingExampleInput input,
+            @NonNull Consumer<TrainingExampleOutput> consumer) {
+        Features.Builder featuresBuilder = Features.newBuilder();
+
+        featuresBuilder.putFeature("int-feature-1", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-2", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-3", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-4", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-5", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-6", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-7", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-8", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-9", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-10", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-11", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-12", convertLongToFeature(0L));
+        featuresBuilder.putFeature("int-feature-13", convertLongToFeature(0L));
+
+        featuresBuilder.putFeature("categorical-feature-14", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-15", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-16", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-17", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-18", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-19", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-20", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-21", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-22", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-23", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-24", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-25", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-26", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-27", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-28", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-29", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-30", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-31", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-32", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-33", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-34", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-35", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-36", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-37", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-38", convertStringToFeature(""));
+        featuresBuilder.putFeature("categorical-feature-39", convertStringToFeature(""));
+
+        featuresBuilder.putFeature("clicked", convertLongToFeature(1L));
+
+        Example example = Example.newBuilder().setFeatures(featuresBuilder.build()).build();
+        TrainingExampleOutput result = new TrainingExampleOutput
+                .Builder()
+                .addTrainingExample(example.toByteArray())
+                .addResumptionToken("token1".getBytes()).build();
+        consumer.accept(result);
+    }
+
     private void handleOnExecute(
             @NonNull ExecuteInput input,
             @NonNull Consumer<ExecuteOutput> consumer
     ) {
         try {
-            var unused = FluentFuture.from(readAds(mRemoteData))
-                    .transform(
-                        ads -> buildResult(runAuction(matchAds(ads, input))),
-                        sBackgroundExecutor)
-                    .transform(
-                        result -> {
-                            consumer.accept(result);
-                            return null;
-                        },
-                        MoreExecutors.directExecutor())
-                    .catching(
-                        Exception.class,
-                        e -> {
-                            Log.e(TAG, "Execution failed.", e);
-                            consumer.accept(null);
-                            return null;
-                        },
-                        MoreExecutors.directExecutor());
+            if (input != null && input.getAppParams() != null
+                    && input.getAppParams().getString("schedule_training") != null
+                    && !input.getAppParams().getString("schedule_training").isEmpty()) {
+                TrainingInterval interval = new TrainingInterval.Builder()
+                        .setMinimumInterval(Duration.ofSeconds(10))
+                        .setSchedulingMode(2)
+                        .build();
+                FederatedComputeScheduler.Params params = new FederatedComputeScheduler
+                        .Params(interval);
+                FederatedComputeInput fcInput = new FederatedComputeInput.Builder()
+                        .setPopulationName(input.getAppParams().getString("schedule_training"))
+                        .build();
+                mFCScheduler.schedule(params, fcInput);
 
+                ExecuteOutput result = new ExecuteOutput.Builder().build();
+                consumer.accept(result);
+            } else {
+                var unused = FluentFuture.from(readAds(mRemoteData))
+                        .transform(
+                            ads -> buildResult(runAuction(matchAds(ads, input))),
+                            sBackgroundExecutor)
+                        .transform(
+                            result -> {
+                                consumer.accept(result);
+                                return null;
+                            },
+                            MoreExecutors.directExecutor())
+                        .catching(
+                            Exception.class,
+                            e -> {
+                                Log.e(TAG, "Execution failed.", e);
+                                consumer.accept(null);
+                                return null;
+                            },
+                            MoreExecutors.directExecutor());
+            }
         } catch (Exception e) {
             Log.e(TAG, "handleOnExecute() failed", e);
             consumer.accept(null);
@@ -368,14 +480,14 @@ public class SampleHandler implements IsolatedWorker {
     }
 
     public void handleOnWebViewEvent(
-            @NonNull WebViewEventInput input,
-            @NonNull Consumer<WebViewEventOutput> consumer) {
+            @NonNull EventInput input,
+            @NonNull Consumer<EventOutput> consumer) {
         try {
             Log.d(TAG, "handleOnEvent() started.");
             PersistableBundle eventParams = input.getParameters();
             int eventType = eventParams.getInt(EVENT_TYPE_KEY);
             if (eventType <= 0) {
-                consumer.accept(new WebViewEventOutput.Builder().build());
+                consumer.accept(new EventOutput.Builder().build());
                 return;
             }
             ContentValues logData = null;
@@ -394,7 +506,7 @@ public class SampleHandler implements IsolatedWorker {
                 logData = new ContentValues();
                 logData.put(CLICK_COST_KEY, updatedPrice);
             }
-            WebViewEventOutput result = new WebViewEventOutput.Builder()
+            EventOutput result = new EventOutput.Builder()
                     .setEventLogRecord(
                         new EventLogRecord.Builder()
                             .setRowIndex(0)

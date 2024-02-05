@@ -62,6 +62,7 @@ java_sdk_library {
     permitted_packages: [
         "android.adservices.ondevicepersonalization",
         "android.ondevicepersonalization",
+        "com.android.adservices.ondevicepersonalization",
         "com.android.ondevicepersonalization.internal",
         "android.federatedcompute",
         "com.android.federatedcompute.internal",
@@ -96,14 +97,5 @@ java_defaults {
     sdk_version: "module_Tiramisu",
     libs: [
         "framework-ondevicepersonalization.impl",
-    ],
-}
-
-java_api_contribution {
-    name: "framework-ondevicepersonalization-public-stubs",
-    api_surface: "public",
-    api_file: "api/current.txt",
-    visibility: [
-        "//build/orchestrator/apis",
     ],
 }

@@ -173,9 +173,39 @@ public class FederatedTrainingTaskDao {
             LogUtil.e(
                     TAG,
                     e,
-                    "Failed to delete federated training task by population name %s and ATP: %s",
+                    "Failed to delete federated training task by "
+                            + "population name %s and calling package: %s",
                     populationName,
                     callingPackage);
+            return null;
+        }
+    }
+
+    /** Delete a task from table based on population name and owner Id (package and class name). */
+    public FederatedTrainingTask findAndRemoveTaskByPopulationNameAndOwnerId(
+            String populationName, String ownerId, String ownerCertDigest) {
+        String selection =
+                FederatedTrainingTaskColumns.POPULATION_NAME
+                        + " = ? AND "
+                        + FederatedTrainingTaskColumns.OWNER_ID
+                        + " = ? AND "
+                        + FederatedTrainingTaskColumns.OWNER_ID_CERT_DIGEST
+                        + " = ?";
+        String[] selectionArgs = {populationName, ownerId, ownerCertDigest};
+        FederatedTrainingTask task =
+                Iterables.getOnlyElement(getFederatedTrainingTask(selection, selectionArgs), null);
+        try {
+            if (task != null) {
+                deleteFederatedTrainingTask(selection, selectionArgs);
+            }
+            return task;
+        } catch (SQLException e) {
+            LogUtil.e(
+                    TAG,
+                    e,
+                    "Failed to delete federated training task by population name %s and ATP: %s",
+                    populationName,
+                    ownerId);
             return null;
         }
     }
@@ -216,7 +246,7 @@ public class FederatedTrainingTaskDao {
             values.put(
                     TaskHistoryContract.TaskHistoryEntry.POPULATION_NAME,
                     taskHistory.getPopulationName());
-            values.put(TaskHistoryContract.TaskHistoryEntry.TASK_NAME, taskHistory.getTaskName());
+            values.put(TaskHistoryContract.TaskHistoryEntry.TASK_ID, taskHistory.getTaskId());
             values.put(
                     TaskHistoryContract.TaskHistoryEntry.CONTRIBUTION_ROUND,
                     taskHistory.getContributionRound());
@@ -237,22 +267,22 @@ public class FederatedTrainingTaskDao {
                     TAG,
                     "Failed to update or insert task history %s %s",
                     taskHistory.getPopulationName(),
-                    taskHistory.getTaskName());
+                    taskHistory.getTaskId());
         }
         return false;
     }
 
     /** Get a task history based on job id, population name and task name. */
-    public TaskHistory getTaskHistory(int jobId, String populationName, String taskName) {
+    public TaskHistory getTaskHistory(int jobId, String populationName, String taskId) {
         SQLiteDatabase db = mDbHelper.getReadableDatabase();
         String selection =
                 TaskHistoryContract.TaskHistoryEntry.JOB_ID
                         + " = ? AND "
                         + TaskHistoryContract.TaskHistoryEntry.POPULATION_NAME
                         + " = ? AND "
-                        + TaskHistoryContract.TaskHistoryEntry.TASK_NAME
+                        + TaskHistoryContract.TaskHistoryEntry.TASK_ID
                         + " = ?";
-        String[] selectionArgs = {String.valueOf(jobId), populationName, taskName};
+        String[] selectionArgs = {String.valueOf(jobId), populationName, taskId};
         String[] projection = {
             TaskHistoryContract.TaskHistoryEntry.CONTRIBUTION_TIME,
             TaskHistoryContract.TaskHistoryEntry.CONTRIBUTION_ROUND,
@@ -283,7 +313,7 @@ public class FederatedTrainingTaskDao {
 
                 return new TaskHistory.Builder()
                         .setJobId(jobId)
-                        .setTaskName(taskName)
+                        .setTaskId(taskId)
                         .setPopulationName(populationName)
                         .setContributionRound(contributionRound)
                         .setContributionTime(contributionTime)

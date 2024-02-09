@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 The Android Open Source Project
+ * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-package android.ondevicepersonalization.test.scenario.ondevicepersonalization;
+package android.federatedcompute.test.scenario.federatedcompute;
 
 import android.platform.test.microbenchmark.Microbenchmark;
 import android.platform.test.rule.DropCachesRule;
+import android.platform.test.rule.KillAppsRule;
 import android.platform.test.rule.PressHomeRule;
 
 import org.junit.Rule;
@@ -25,9 +26,11 @@ import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
 @RunWith(Microbenchmark.class)
-public class DownloadVendorDataFromLocalUrlMicrobenchmark extends DownloadVendorDataFromLocalUrl {
+public class ScheduleAndForceEncryptionKeyFetchJobMicrobenchmark
+        extends ScheduleAndForceEncryptionKeyFetchJob {
 
     @Rule
     public RuleChain rules = RuleChain.outerRule(new DropCachesRule())
+            .around(new KillAppsRule("com.example.odpclient"))
             .around(new PressHomeRule());
 }

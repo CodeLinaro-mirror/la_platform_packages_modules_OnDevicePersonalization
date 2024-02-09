@@ -156,6 +156,12 @@ public class FederatedComputeJobManager {
                         trainingOptions.getPopulationName(), callingPackageName);
         Set<FederatedTrainingTask> trainingTasksToCancel = new HashSet<>();
         String populationName = trainingOptions.getPopulationName();
+        String ownerIdentifier =
+                trainingOptions.getOwnerComponentName().getPackageName()
+                        + "-"
+                        + trainingOptions.getOwnerComponentName().getClassName()
+                        + "-"
+                        + trainingOptions.getOwnerIdentifierCertDigest();
         long nowMs = mClock.currentTimeMillis();
         boolean shouldSchedule;
         FederatedTrainingTask newTask;
@@ -167,11 +173,14 @@ public class FederatedComputeJobManager {
         if (existingTask == null) {
             int jobId =
                     mJobIdGenerator.generateJobId(
-                            this.mContext, populationName, callingPackageName);
+                            this.mContext, populationName, ownerIdentifier);
             FederatedTrainingTask.Builder newTaskBuilder =
                     FederatedTrainingTask.builder()
                             .appPackageName(callingPackageName)
                             .jobId(jobId)
+                            .ownerId(
+                                    trainingOptions.getOwnerComponentName().flattenToString())
+                            .ownerIdCertDigest(trainingOptions.getOwnerIdentifierCertDigest())
                             .creationTime(nowMs)
                             .lastScheduledTime(nowMs)
                             .schedulingReason(SchedulingReason.SCHEDULING_REASON_NEW_TASK)

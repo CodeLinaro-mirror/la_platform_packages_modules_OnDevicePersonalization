@@ -38,6 +38,7 @@ import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.ondevicepersonalization.services.FlagsFactory;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationConfig;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
 import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
@@ -47,6 +48,8 @@ import com.android.ondevicepersonalization.services.data.events.EventState;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
 import com.android.ondevicepersonalization.services.data.events.Query;
 import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
+import com.android.ondevicepersonalization.services.data.vendor.FileUtils;
+import com.android.ondevicepersonalization.services.data.vendor.LocalData;
 import com.android.ondevicepersonalization.services.data.vendor.OnDevicePersonalizationLocalDataDao;
 import com.android.ondevicepersonalization.services.data.vendor.OnDevicePersonalizationVendorDataDao;
 import com.android.ondevicepersonalization.services.data.vendor.VendorData;
@@ -131,6 +134,13 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         PhFlagsTestUtil.setUpDeviceConfigPermissions();
         PhFlagsTestUtil.disableGlobalKillSwitch();
         PhFlagsTestUtil.disablePersonalizationStatusOverride();
+
+        // Clean data up directories
+        File vendorDir = new File(mContext.getFilesDir(), "VendorData");
+        File localDir = new File(mContext.getFilesDir(), "LocalData");
+        FileUtils.deleteDirectory(vendorDir);
+        FileUtils.deleteDirectory(localDir);
+
         mPrivacyStatus.setPersonalizationStatusEnabled(true);
         mTestDao = OnDevicePersonalizationVendorDataDao.getInstanceForTest(mContext, TEST_OWNER,
                 TEST_CERT_DIGEST);
@@ -219,7 +229,12 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         addEventData(mContext.getPackageName(), 100L);
         addEventData(TEST_OWNER, timestamp);
 
+        var originalIsolatedServiceAllowList =
+                FlagsFactory.getFlags().getIsolatedServiceAllowList();
+        PhFlagsTestUtil.setIsolatedServiceAllowList(
+                "com.android.ondevicepersonalization.servicetests");
         OnDevicePersonalizationMaintenanceJobService.cleanupVendorData(mContext);
+        PhFlagsTestUtil.setIsolatedServiceAllowList(originalIsolatedServiceAllowList);
         File dir = new File(OnDevicePersonalizationVendorDataDao.getFileDir(
                 OnDevicePersonalizationVendorDataDao.getTableName(mContext.getPackageName(),
                         PackageUtils.getCertDigest(mContext, mContext.getPackageName())),
@@ -244,7 +259,12 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         addTestData(timestamp + 20, mDao);
         assertEquals(6, dir.listFiles().length);
 
+        originalIsolatedServiceAllowList =
+                FlagsFactory.getFlags().getIsolatedServiceAllowList();
+        PhFlagsTestUtil.setIsolatedServiceAllowList(
+                "com.android.ondevicepersonalization.servicetests");
         OnDevicePersonalizationMaintenanceJobService.cleanupVendorData(mContext);
+        PhFlagsTestUtil.setIsolatedServiceAllowList(originalIsolatedServiceAllowList);
         assertEquals(2, dir.listFiles().length);
         assertTrue(new File(dir, "large_" + (timestamp + 20)).exists());
         assertTrue(new File(dir, "large2_" + (timestamp + 20)).exists());
@@ -255,6 +275,27 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         assertEquals(2, mEventsDao.readAllNewRowsForPackage(TEST_OWNER, 0, 0).size());
         assertEquals(2,
                 mEventsDao.readAllNewRowsForPackage(mContext.getPackageName(), 0, 0).size());
+    }
+
+    @Test
+    public void testLocalDataCleanup() throws Exception {
+        var localDao = OnDevicePersonalizationLocalDataDao.getInstanceForTest(mContext,
+                TEST_OWNER, TEST_CERT_DIGEST);
+        localDao.createTable();
+        File localTestDir = new File(OnDevicePersonalizationLocalDataDao.getFileDir(
+                OnDevicePersonalizationLocalDataDao.getTableName(TEST_OWNER, TEST_CERT_DIGEST),
+                mContext.getFilesDir()));
+        assertTrue(localTestDir.exists());
+
+        localDao.updateOrInsertLocalData(new LocalData.Builder()
+                        .setData(new byte[1])
+                        .setKey("key")
+                .build());
+        assertNotNull(localDao.readSingleLocalDataRow("key"));
+
+        OnDevicePersonalizationMaintenanceJobService.cleanupVendorData(mContext);
+        assertFalse(localTestDir.exists());
+        assertNull(localDao.readSingleLocalDataRow("key"));
     }
 
     @Test
@@ -275,7 +316,12 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         assertEquals(4, vendorDir.listFiles().length);
         assertEquals(3, localDir.listFiles().length);
 
+        var originalIsolatedServiceAllowList =
+                FlagsFactory.getFlags().getIsolatedServiceAllowList();
+        PhFlagsTestUtil.setIsolatedServiceAllowList(
+                "com.android.ondevicepersonalization.servicetests");
         OnDevicePersonalizationMaintenanceJobService.cleanupVendorData(mContext);
+        PhFlagsTestUtil.setIsolatedServiceAllowList(originalIsolatedServiceAllowList);
         assertEquals(1, vendorDir.listFiles().length);
         assertEquals(1, localDir.listFiles().length);
     }
@@ -287,5 +333,10 @@ public class OnDevicePersonalizationMaintenanceJobServiceTest {
         dbHelper.getWritableDatabase().close();
         dbHelper.getReadableDatabase().close();
         dbHelper.close();
+
+        File vendorDir = new File(mContext.getFilesDir(), "VendorData");
+        File localDir = new File(mContext.getFilesDir(), "LocalData");
+        FileUtils.deleteDirectory(vendorDir);
+        FileUtils.deleteDirectory(localDir);
     }
 }

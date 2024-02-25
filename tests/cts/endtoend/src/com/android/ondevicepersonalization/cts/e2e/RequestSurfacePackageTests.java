@@ -26,16 +26,22 @@ import android.adservices.ondevicepersonalization.SurfacePackageToken;
 import android.content.ComponentName;
 import android.content.Context;
 import android.hardware.display.DisplayManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PersistableBundle;
 import android.view.Display;
 import android.view.SurfaceControlViewHost.SurfacePackage;
 import android.view.SurfaceView;
+import android.view.View;
 
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.rules.ActivityScenarioRule;
 
 import com.android.compatibility.common.util.ShellUtils;
+import com.android.ondevicepersonalization.testing.sampleserviceapi.SampleServiceApi;
+import com.android.ondevicepersonalization.testing.utils.ResultReceiver;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -46,6 +52,7 @@ import org.junit.runners.Parameterized;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 
 /**
@@ -79,8 +86,24 @@ public class RequestSurfacePackageTests {
                 "device_config put on_device_personalization "
                         + "shared_isolated_process_feature_enabled "
                         + mIsSipFeatureEnabled);
+        ShellUtils.runShellCommand(
+                "device_config put on_device_personalization "
+                        + "debug.validate_rendering_config_keys "
+                        + false);
+        ShellUtils.runShellCommand(
+                "device_config put on_device_personalization "
+                        + "isolated_service_allow_list "
+                        + "com.android.ondevicepersonalization.testing.sampleservice,"
+                        + "com.example.odptargetingapp2");
     }
 
+    @After
+    public void reset() {
+        ShellUtils.runShellCommand(
+                "device_config put on_device_personalization "
+                        + "isolated_service_allow_list "
+                        + "null");
+    }
 
     @Rule
     public final ActivityScenarioRule<TestActivity> mActivityScenarioRule =
@@ -90,7 +113,7 @@ public class RequestSurfacePackageTests {
     public void testRequestSurfacePackage() throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         var receiver = new ResultReceiver<SurfacePackage>();
         SurfaceView surfaceView = createSurfaceView();
         manager.requestSurfacePackage(
@@ -101,7 +124,17 @@ public class RequestSurfacePackageTests {
                 surfaceView.getHeight(),
                 Executors.newSingleThreadExecutor(),
                 receiver);
-        assertNotNull(receiver.getResult());
+        SurfacePackage surfacePackage = receiver.getResult();
+        assertNotNull(surfacePackage);
+        CountDownLatch latch = new CountDownLatch(1);
+        new Handler(Looper.getMainLooper()).post(
+                () -> {
+                    surfaceView.setChildSurfacePackage(surfacePackage);
+                    surfaceView.setZOrderOnTop(true);
+                    surfaceView.setVisibility(View.VISIBLE);
+                    latch.countDown();
+                });
+        latch.await();
     }
 
     @Test
@@ -127,7 +160,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 NullPointerException.class,
@@ -146,7 +179,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 IllegalArgumentException.class,
@@ -165,7 +198,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 IllegalArgumentException.class,
@@ -184,7 +217,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 IllegalArgumentException.class,
@@ -203,7 +236,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 NullPointerException.class,
@@ -222,7 +255,7 @@ public class RequestSurfacePackageTests {
             throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
-        SurfacePackageToken token = runExecute(manager, PersistableBundle.EMPTY);
+        SurfacePackageToken token = runExecute(manager);
         SurfaceView surfaceView = createSurfaceView();
         assertThrows(
                 NullPointerException.class,
@@ -251,8 +284,11 @@ public class RequestSurfacePackageTests {
     }
 
     private SurfacePackageToken runExecute(
-            OnDevicePersonalizationManager manager, PersistableBundle params)
+            OnDevicePersonalizationManager manager)
             throws InterruptedException {
+        PersistableBundle params = new PersistableBundle();
+        params.putString(SampleServiceApi.KEY_OPCODE, SampleServiceApi.OPCODE_RENDER_AND_LOG);
+        params.putString(SampleServiceApi.KEY_RENDERING_CONFIG_IDS, "id1");
         var receiver = new ResultReceiver<ExecuteResult>();
         manager.execute(
                 new ComponentName(SERVICE_PACKAGE, SERVICE_CLASS),

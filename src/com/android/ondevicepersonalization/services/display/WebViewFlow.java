@@ -16,6 +16,8 @@
 
 package com.android.ondevicepersonalization.services.display;
 
+import static com.android.ondevicepersonalization.services.statsd.ApiCallStats.API_SERVICE_ON_EVENT;
+
 import android.adservices.ondevicepersonalization.Constants;
 import android.adservices.ondevicepersonalization.EventInputParcel;
 import android.adservices.ondevicepersonalization.EventLogRecord;
@@ -136,7 +138,7 @@ public class WebViewFlow implements ServiceFlow<EventOutputParcel> {
 
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER,
                 new DataAccessServiceImpl(
-                        mService.getPackageName(), mContext,
+                        mService, mContext,
                         /* includeLocalData */ true, /* includeEventData */ true));
         serviceParams.putParcelable(Constants.EXTRA_INPUT,
                 new EventInputParcel.Builder()
@@ -159,6 +161,7 @@ public class WebViewFlow implements ServiceFlow<EventOutputParcel> {
                 .transform(
                         result -> {
                             StatsUtils.writeServiceRequestMetrics(
+                                    API_SERVICE_ON_EVENT,
                                     result, mInjector.getClock(),
                                     Constants.STATUS_SUCCESS,
                                     mStartServiceTimeMillis);
@@ -169,6 +172,7 @@ public class WebViewFlow implements ServiceFlow<EventOutputParcel> {
                         Exception.class,
                         e -> {
                             StatsUtils.writeServiceRequestMetrics(
+                                    API_SERVICE_ON_EVENT,
                                     /* result= */ null, mInjector.getClock(),
                                     Constants.STATUS_INTERNAL_ERROR,
                                     mStartServiceTimeMillis);
@@ -242,7 +246,7 @@ public class WebViewFlow implements ServiceFlow<EventOutputParcel> {
             Event event = new Event.Builder()
                     .setType(eventData.getType())
                     .setQueryId(mQueryId)
-                    .setServiceName(mService.getPackageName())
+                    .setService(mService)
                     .setTimeMillis(mInjector.getClock().currentTimeMillis())
                     .setRowIndex(eventData.getRowIndex())
                     .setEventData(data)

@@ -36,9 +36,11 @@ import androidx.test.core.app.ApplicationProvider;
 
 import com.android.compatibility.common.util.ShellUtils;
 import com.android.ondevicepersonalization.testing.sampleserviceapi.SampleServiceApi;
+import com.android.ondevicepersonalization.testing.utils.DeviceSupportHelper;
 import com.android.ondevicepersonalization.testing.utils.ResultReceiver;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -59,6 +61,7 @@ public class CtsOdpManagerTests {
     private static final String SERVICE_CLASS =
             "com.android.ondevicepersonalization.testing.sampleservice.SampleService";
     private static final int LARGE_BLOB_SIZE = 10485760;
+    private static final int DELAY_MILLIS = 2000;
 
     private final Context mContext = ApplicationProvider.getApplicationContext();
 
@@ -72,6 +75,9 @@ public class CtsOdpManagerTests {
 
     @Before
     public void setUp() {
+        // Skip the test if it runs on unsupported platforms.
+        Assume.assumeTrue(DeviceSupportHelper.isDeviceSupported());
+
         ShellUtils.runShellCommand(
                 "device_config put on_device_personalization "
                         + "shared_isolated_process_feature_enabled "
@@ -93,6 +99,12 @@ public class CtsOdpManagerTests {
                 "device_config put on_device_personalization "
                         + "isolated_service_allow_list "
                         + "null");
+
+        ShellUtils.runShellCommand(
+                "am force-stop com.google.android.ondevicepersonalization.services");
+        ShellUtils.runShellCommand(
+                "am force-stop com.android.ondevicepersonalization.services");
+
     }
 
     @Test
@@ -386,6 +398,8 @@ public class CtsOdpManagerTests {
             assertTrue(receiver.isSuccess());
         }
 
+        Thread.sleep(DELAY_MILLIS);
+
         // Read and check whether value matches written value.
         {
             var receiver = new ResultReceiver<ExecuteResult>();
@@ -417,6 +431,8 @@ public class CtsOdpManagerTests {
                     receiver);
             assertTrue(receiver.isSuccess());
         }
+
+        Thread.sleep(DELAY_MILLIS);
 
         // Read and check whether value was removed.
         {
@@ -459,6 +475,8 @@ public class CtsOdpManagerTests {
             assertTrue(receiver.isSuccess());
         }
 
+        Thread.sleep(DELAY_MILLIS);
+
         // Read and check whether value matches written value.
         {
             var receiver = new ResultReceiver<ExecuteResult>();
@@ -491,6 +509,8 @@ public class CtsOdpManagerTests {
                     receiver);
             assertTrue(receiver.isSuccess());
         }
+
+        Thread.sleep(DELAY_MILLIS);
 
         // Read and check whether value was removed.
         {
@@ -569,6 +589,8 @@ public class CtsOdpManagerTests {
                     receiver);
             assertTrue(receiver.isSuccess());
         }
+
+        Thread.sleep(DELAY_MILLIS);
 
         // Run model inference
         {

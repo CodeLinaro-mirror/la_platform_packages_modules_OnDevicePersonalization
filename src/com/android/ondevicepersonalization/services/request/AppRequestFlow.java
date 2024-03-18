@@ -16,6 +16,8 @@
 
 package com.android.ondevicepersonalization.services.request;
 
+import static com.android.ondevicepersonalization.services.statsd.ApiCallStats.API_SERVICE_ON_EXECUTE;
+
 import android.adservices.ondevicepersonalization.Constants;
 import android.adservices.ondevicepersonalization.ExecuteInputParcel;
 import android.adservices.ondevicepersonalization.ExecuteOutputParcel;
@@ -45,12 +47,13 @@ import com.android.ondevicepersonalization.services.manifest.AppManifestConfig;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
 import com.android.ondevicepersonalization.services.policyengine.UserDataAccessor;
 import com.android.ondevicepersonalization.services.serviceflow.ServiceFlow;
+import com.android.ondevicepersonalization.services.util.AllowListUtils;
 import com.android.ondevicepersonalization.services.util.Clock;
 import com.android.ondevicepersonalization.services.util.CryptUtils;
+import com.android.ondevicepersonalization.services.util.DebugUtils;
 import com.android.ondevicepersonalization.services.util.LogUtils;
 import com.android.ondevicepersonalization.services.util.MonotonicClock;
 import com.android.ondevicepersonalization.services.util.PackageUtils;
-import com.android.ondevicepersonalization.services.util.PrivacyUtils;
 import com.android.ondevicepersonalization.services.util.StatsUtils;
 
 import com.google.common.util.concurrent.FluentFuture;
@@ -109,11 +112,6 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             return privacyStatus.isPersonalizationStatusEnabled();
         }
 
-        boolean isOutputDataAllowed(
-                String servicePackageName, String appPackageName, Context context) {
-            return PrivacyUtils.isOutputDataAllowed(servicePackageName, appPackageName, context);
-        }
-
         boolean shouldValidateExecuteOutput() {
             return DeviceConfig.getBoolean(
                     /* namespace= */ "on_device_personalization",
@@ -162,7 +160,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
 
         if (!mInjector.isPersonalizationStatusEnabled()) {
             sLogger.d(TAG + ": Personalization is disabled.");
-            sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED);
+            sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED, 0);
             return false;
         }
 
@@ -173,7 +171,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             mSerializedAppParams = Objects.requireNonNull(paramsBuffer.getByteArray());
         } catch (Exception e) {
             sLogger.d(TAG + ": Failed to extract app params.", e);
-            sendErrorResult(Constants.STATUS_INTERNAL_ERROR);
+            sendErrorResult(Constants.STATUS_INTERNAL_ERROR, 0);
             return false;
         }
 
@@ -184,13 +182,13 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
                             mContext, mService.getPackageName()));
         } catch (Exception e) {
             sLogger.d(TAG + ": Failed to read manifest.", e);
-            sendErrorResult(Constants.STATUS_NAME_NOT_FOUND);
+            sendErrorResult(Constants.STATUS_NAME_NOT_FOUND, 0);
             return false;
         }
 
         if (!mService.getClassName().equals(config.getServiceName())) {
             sLogger.d(TAG + "service class not found");
-            sendErrorResult(Constants.STATUS_CLASS_NOT_FOUND);
+            sendErrorResult(Constants.STATUS_CLASS_NOT_FOUND, 0);
             return false;
         }
 
@@ -215,7 +213,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
         serviceParams.putBinder(
                 Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER,
                 new DataAccessServiceImpl(
-                        mService.getPackageName(),
+                        mService,
                         mContext,
                         /* includeLocalData */ true,
                         /* includeEventData */ true));
@@ -238,7 +236,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
                 .transform(
                         val -> {
                             StatsUtils.writeServiceRequestMetrics(
-                                    val, mInjector.getClock(),
+                                    API_SERVICE_ON_EXECUTE, val, mInjector.getClock(),
                                     Constants.STATUS_SUCCESS, mStartServiceTimeMillis);
                             return val;
                         },
@@ -248,7 +246,8 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
                         Exception.class,
                         e -> {
                             StatsUtils.writeServiceRequestMetrics(
-                                    /* result= */ null, mInjector.getClock(),
+                                    API_SERVICE_ON_EXECUTE, /* result= */ null,
+                                    mInjector.getClock(),
                                     Constants.STATUS_INTERNAL_ERROR, mStartServiceTimeMillis);
                             return Futures.immediateFailedFuture(e);
                         },
@@ -298,9 +297,13 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
                     public void onFailure(Throwable t) {
                         sLogger.w(TAG + ": Request failed.", t);
                         if (t instanceof OdpServiceException) {
-                            sendErrorResult(((OdpServiceException) t).getErrorCode());
+                            OdpServiceException e = (OdpServiceException) t;
+                            sendErrorResult(
+                                    e.getErrorCode(),
+                                    DebugUtils.getIsolatedServiceExceptionCode(
+                                        mContext, mService, e));
                         } else {
-                            sendErrorResult(Constants.STATUS_INTERNAL_ERROR);
+                            sendErrorResult(Constants.STATUS_INTERNAL_ERROR, 0);
                         }
                     }
                 },
@@ -319,7 +322,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             try {
                 OnDevicePersonalizationVendorDataDao vendorDataDao =
                         OnDevicePersonalizationVendorDataDao.getInstance(mContext,
-                                mService.getPackageName(),
+                                mService,
                                 PackageUtils.getCertDigest(mContext, mService.getPackageName()));
                 if (result.getRenderingConfig() != null) {
                     Set<String> keyset = vendorDataDao.readAllVendorDataKeys();
@@ -339,7 +342,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
         sLogger.d(TAG + ": logQuery() started.");
         return LogUtils.writeLogRecords(
                 mContext,
-                mService.getPackageName(),
+                mService,
                 result.getRequestLogRecord(),
                 result.getEventLogRecords());
     }
@@ -364,13 +367,26 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             }
             Bundle bundle = new Bundle();
             bundle.putString(Constants.EXTRA_SURFACE_PACKAGE_TOKEN_STRING, token);
-            if (mInjector.isOutputDataAllowed(
-                    mService.getPackageName(), mCallingPackageName, mContext)) {
+            if (isOutputDataAllowed()) {
                 bundle.putByteArray(Constants.EXTRA_OUTPUT_DATA, result.getOutputData());
             }
             return Futures.immediateFuture(bundle);
         } catch (Exception e) {
             return Futures.immediateFailedFuture(e);
+        }
+    }
+
+    private boolean isOutputDataAllowed() {
+        try {
+            return AllowListUtils.isPairAllowListed(
+                    mCallingPackageName,
+                    PackageUtils.getCertDigest(mContext, mCallingPackageName),
+                    mService.getPackageName(),
+                    PackageUtils.getCertDigest(mContext, mService.getPackageName()),
+                    mInjector.getFlags().getOutputDataAllowList());
+        } catch (Exception e) {
+            sLogger.d(TAG + ": allow list error", e);
+            return false;
         }
     }
 
@@ -386,9 +402,9 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
         }
     }
 
-    private void sendErrorResult(int errorCode) {
+    private void sendErrorResult(int errorCode, int isolatedServiceErrorCode) {
         try {
-            mCallback.onError(errorCode);
+            mCallback.onError(errorCode, isolatedServiceErrorCode);
         } catch (RemoteException e) {
             sLogger.w(TAG + ": Callback error", e);
         } finally {

@@ -19,13 +19,11 @@ package com.android.federatedcompute.services.data;
 import static com.android.federatedcompute.services.data.ODPAuthorizationTokenContract.ODP_AUTHORIZATION_TOKEN_TABLE;
 
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
-import android.database.sqlite.SQLiteOpenHelper;
 
 import com.android.federatedcompute.internal.util.LogUtil;
 import com.android.federatedcompute.services.common.Clock;
@@ -34,17 +32,16 @@ import com.android.federatedcompute.services.data.ODPAuthorizationTokenContract.
 
 import com.google.common.annotations.VisibleForTesting;
 
-
 public class ODPAuthorizationTokenDao {
     private static final String TAG = ODPAuthorizationTokenDao.class.getSimpleName();
 
-    private final SQLiteOpenHelper mDbHelper;
+    private final FederatedComputeDbHelper mDbHelper;
 
     private final Clock mClock;
 
     private static volatile ODPAuthorizationTokenDao sSingletonInstance;
 
-    private ODPAuthorizationTokenDao(SQLiteOpenHelper dbHelper, Clock clock) {
+    private ODPAuthorizationTokenDao(FederatedComputeDbHelper dbHelper, Clock clock) {
         mDbHelper = dbHelper;
         mClock = clock;
     }
@@ -85,8 +82,7 @@ public class ODPAuthorizationTokenDao {
 
     /** Insert a token to the odp authorization token table. */
     public boolean insertAuthorizationToken(ODPAuthorizationToken authorizationToken) {
-
-        SQLiteDatabase db = getWritableDatabase();
+        SQLiteDatabase db = mDbHelper.safeGetWritableDatabase();
         if (db == null) {
             throw new SQLiteException(TAG + ": Failed to open database.");
         }
@@ -121,22 +117,38 @@ public class ODPAuthorizationTokenDao {
     /** Delete an ODP adopter's authorization token.
      * @return the number of rows deleted. */
     public int deleteAuthorizationToken(String ownerIdentifier) {
-        SQLiteDatabase db = getWritableDatabase();
+        SQLiteDatabase db = mDbHelper.safeGetWritableDatabase();
         if (db == null) {
             throw new SQLiteException(TAG + ": Failed to open database.");
         }
         String whereClause = ODPAuthorizationTokenColumns.OWNER_IDENTIFIER + " = ?";
         String[] whereArgs = {ownerIdentifier};
         int deletedRows = db.delete(ODP_AUTHORIZATION_TOKEN_TABLE, whereClause, whereArgs);
-        LogUtil.d(TAG, "Deleted %s expired tokens for %s from database", deletedRows,
+        LogUtil.d(TAG, "Deleted %d expired tokens for %s from database", deletedRows,
                 ownerIdentifier);
         return deletedRows;
     }
 
 
+    /** Batch delete all expired authorization tokens.
+     * @return the number of rows deleted. */
+    public int deleteExpiredAuthorizationTokens() {
+        SQLiteDatabase db = mDbHelper.safeGetWritableDatabase();
+        if (db == null) {
+            throw new SQLiteException(TAG + ": Failed to open database.");
+        }
+        String whereClause = ODPAuthorizationTokenColumns.EXPIRY_TIME + " < ?";
+        String[] whereArgs = { String.valueOf(mClock.currentTimeMillis()) };
+        int deletedRows = db.delete(ODP_AUTHORIZATION_TOKEN_TABLE, whereClause, whereArgs);
+        LogUtil.d(TAG, "Deleted %d expired tokens", deletedRows);
+        return deletedRows;
+    }
+
+
+
     private ODPAuthorizationToken readTokenFromDatabase(
             String selection, String[] selectionArgs, String orderBy) {
-        SQLiteDatabase db = getReadableDatabase();
+        SQLiteDatabase db = mDbHelper.safeGetReadableDatabase();
         if (db == null) {
             throw new SQLiteException(TAG + ": Failed to open database.");
         }
@@ -157,14 +169,10 @@ public class ODPAuthorizationTokenDao {
                             selectColumns,
                             selection,
                             selectionArgs,
-                            null
-                            /* groupBy= */ ,
-                            null
-                            /* having= */ ,
-                            orderBy
-                            /* orderBy= */ ,
-                            String.valueOf(1)
-                            /* limit= */);
+                            /* groupBy= */ null,
+                            /* having= */ null,
+                            /* orderBy= */ orderBy,
+                            /* limit= */ String.valueOf(1));
             while (cursor.moveToNext()) {
                 ODPAuthorizationToken.Builder encryptionKeyBuilder =
                         new ODPAuthorizationToken.Builder(
@@ -190,27 +198,4 @@ public class ODPAuthorizationTokenDao {
         }
         return authToken;
     }
-
-    /** @return a readable database object or null if error occurs. */
-    @Nullable
-    private SQLiteDatabase getReadableDatabase() {
-        try {
-            return mDbHelper.getReadableDatabase();
-        } catch (SQLiteException e) {
-            LogUtil.e(TAG, e, "Failed to open the database.");
-        }
-        return null;
-    }
-
-    /** @return a writable database object or null if error occurs. */
-    @Nullable
-    private SQLiteDatabase getWritableDatabase() {
-        try {
-            return mDbHelper.getWritableDatabase();
-        } catch (SQLiteException e) {
-            LogUtil.e(TAG, e, "Failed to open the database.");
-        }
-        return null;
-    }
-
 }

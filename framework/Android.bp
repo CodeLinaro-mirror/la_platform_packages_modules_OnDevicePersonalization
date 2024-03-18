@@ -54,6 +54,9 @@ java_sdk_library {
         "framework-connectivity.stubs.module_lib",
         "ondevicepersonalization_flags_lib",
     ],
+    stub_only_libs: [
+        "framework-connectivity.stubs.module_lib",
+    ],
     sdk_version: "module_current",
     defaults: [
         "framework-module-defaults",
@@ -62,6 +65,7 @@ java_sdk_library {
     permitted_packages: [
         "android.adservices.ondevicepersonalization",
         "android.ondevicepersonalization",
+        "com.android.adservices.ondevicepersonalization",
         "com.android.ondevicepersonalization.internal",
         "android.federatedcompute",
         "com.android.federatedcompute.internal",
@@ -96,14 +100,5 @@ java_defaults {
     sdk_version: "module_Tiramisu",
     libs: [
         "framework-ondevicepersonalization.impl",
-    ],
-}
-
-java_api_contribution {
-    name: "framework-ondevicepersonalization-public-stubs",
-    api_surface: "public",
-    api_file: "api/current.txt",
-    visibility: [
-        "//build/orchestrator/apis",
     ],
 }

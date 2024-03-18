@@ -16,6 +16,7 @@
 
 package com.android.federatedcompute.services.http;
 
+import static com.android.federatedcompute.services.common.PhFlagsTestUtil.enableEncryption;
 import static com.android.federatedcompute.services.http.HttpClientUtil.ACCEPT_ENCODING_HDR;
 import static com.android.federatedcompute.services.http.HttpClientUtil.CONTENT_ENCODING_HDR;
 import static com.android.federatedcompute.services.http.HttpClientUtil.CONTENT_LENGTH_HDR;
@@ -37,6 +38,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +61,8 @@ import com.android.federatedcompute.services.data.ODPAuthorizationToken;
 import com.android.federatedcompute.services.data.ODPAuthorizationTokenDao;
 import com.android.federatedcompute.services.encryption.HpkeJniEncrypter;
 import com.android.federatedcompute.services.http.HttpClientUtil.HttpMethod;
+import com.android.federatedcompute.services.security.AuthorizationContext;
+import com.android.federatedcompute.services.security.KeyAttestation;
 import com.android.federatedcompute.services.testutils.TrainingTestUtil;
 import com.android.federatedcompute.services.training.util.ComputationResult;
 
@@ -137,9 +141,12 @@ public final class HttpFederatedProtocolTest {
 
     private static final List<String> KA_RECORD =
             List.of("aasldkgjlaskdjgalskj", "aldkjglasdkjlasjg");
-
-    private static final boolean DEFAULT_ALLOW_UNAUTHENTICATED = false;
-
+    private static final AuthenticationMetadata AUTH_METADATA =
+            AuthenticationMetadata.newBuilder()
+                    .setKeyAttestationMetadata(
+                            KeyAttestationAuthMetadata.newBuilder()
+                                    .setChallenge(ByteString.copyFrom(CHALLENGE)))
+                    .build();
     private static final FederatedComputeEncryptionKey ENCRYPTION_KEY =
             new FederatedComputeEncryptionKey.Builder()
                     .setPublicKey("rSJBSUYG0ebvfW1AXCWO0CMGMJhDzpfQm3eLyw1uxX8=")
@@ -153,6 +160,12 @@ public final class HttpFederatedProtocolTest {
 
     private static final FLRunnerResult FL_RUNNER_FAIL_RESULT =
             FLRunnerResult.newBuilder().setContributionResult(ContributionResult.FAIL).build();
+
+    private static final FLRunnerResult FL_RUNNER_NOT_ELIGIBLE_RESULT =
+            FLRunnerResult.newBuilder()
+                    .setContributionResult(ContributionResult.FAIL)
+                    .setErrorStatus(FLRunnerResult.ErrorStatus.NOT_ELIGIBLE)
+                    .build();
     private static final CreateTaskAssignmentRequest
             START_TASK_ASSIGNMENT_REQUEST_WITH_COMPRESSION =
                     CreateTaskAssignmentRequest.newBuilder()
@@ -189,14 +202,17 @@ public final class HttpFederatedProtocolTest {
     private ArgumentCaptor<NetworkStats> mNetworkStatsArgumentCaptor =
             ArgumentCaptor.forClass(NetworkStats.class);
 
-    private ODPAuthorizationTokenDao mODPAuthorizationTokenDao =
-            ODPAuthorizationTokenDao.getInstanceForTest(
-                    ApplicationProvider.getApplicationContext());
+    private ODPAuthorizationTokenDao mODPAuthorizationTokenDao;
 
     private Clock mClock = MonotonicClock.getInstance();
 
+    @Mock private KeyAttestation mMockKeyAttestation;
+
     @Before
     public void setUp() throws Exception {
+        mODPAuthorizationTokenDao =
+                ODPAuthorizationTokenDao.getInstanceForTest(
+                        ApplicationProvider.getApplicationContext());
         mHttpFederatedProtocol =
                 new HttpFederatedProtocol(
                         TASK_ASSIGNMENT_TARGET_URI,
@@ -204,9 +220,9 @@ public final class HttpFederatedProtocolTest {
                         POPULATION_NAME,
                         mMockHttpClient,
                         new HpkeJniEncrypter(),
-                        mTrainingEventLogger,
-                        mODPAuthorizationTokenDao,
-                        mClock);
+                        mTrainingEventLogger);
+        doReturn(KA_RECORD).when(mMockKeyAttestation).generateAttestationRecord(any(), any());
+        enableEncryption();
     }
 
     @After
@@ -223,8 +239,10 @@ public final class HttpFederatedProtocolTest {
     public void testIssueCheckinSuccess() throws Exception {
         setUpHttpFederatedProtocol();
 
+        CreateTaskAssignmentResponse createTaskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         mHttpFederatedProtocol
-                .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
+                .downloadTaskAssignment(createTaskAssignmentResponse.getTaskAssignment())
                 .get();
 
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
@@ -252,21 +270,17 @@ public final class HttpFederatedProtocolTest {
 
     @Test
     public void testIssueCheckin_withAuthToken_unauthenticated() throws Exception {
-        // insert authorization token
-        ODPAuthorizationToken authToken = createAuthToken();
-        mODPAuthorizationTokenDao.insertAuthorizationToken(authToken);
-        assertThat(mODPAuthorizationTokenDao.getUnexpiredAuthorizationToken(OWNER_ID))
-                .isEqualTo(authToken);
-
+        insertAuthToken();
         setUpHttpFederatedProtocol(
-                createUnauthenticatedTAResponse(),
+                createUnauthenticatedResponse(),
                 createPlanHttpResponse(),
                 checkpointHttpResponse(),
                 createReportResultHttpResponse(),
                 SUCCESS_EMPTY_HTTP_RESPONSE);
 
-        CheckinResult checkinResult =
-                mHttpFederatedProtocol.issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, true).get();
+        CreateTaskAssignmentResponse createTaskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
 
         // Verify task assignment request.
@@ -282,13 +296,10 @@ public final class HttpFederatedProtocolTest {
                                 .containsKey(ODP_AUTHENTICATION_KEY))
                 .isEqualTo(false);
 
-        // the old authorization token is deleted upon 401 response
-        assertThat(mODPAuthorizationTokenDao.getUnexpiredAuthorizationToken(OWNER_ID))
-                .isEqualTo(null);
-        assertThat(checkinResult.getRejectionInfo().getReason())
+        assertThat(createTaskAssignmentResponse.getRejectionInfo().getReason())
                 .isEqualTo(RejectionReason.Enum.UNAUTHENTICATED);
         assertThat(
-                        checkinResult
+                        createTaskAssignmentResponse
                                 .getRejectionInfo()
                                 .getAuthMetadata()
                                 .getKeyAttestationMetadata()
@@ -307,7 +318,11 @@ public final class HttpFederatedProtocolTest {
                 .isEqualTo(authToken);
         setUpHttpFederatedProtocol();
 
-        mHttpFederatedProtocol.issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, true).get();
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+        mHttpFederatedProtocol
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
+                .get();
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
 
         // Verify task assignment request.
@@ -328,54 +343,22 @@ public final class HttpFederatedProtocolTest {
                 .isEqualTo(authToken);
     }
 
-    private void checkActualTARequest(
-            FederatedComputeHttpRequest actualStartTaskAssignmentRequest, int headerSize) {
-        assertThat(actualStartTaskAssignmentRequest.getUri()).isEqualTo(START_TASK_ASSIGNMENT_URI);
-        assertThat(actualStartTaskAssignmentRequest.getHttpMethod()).isEqualTo(HttpMethod.POST);
-
-        // check header
-        HashMap<String, String> expectedHeaders = new HashMap<>();
-        assertThat(actualStartTaskAssignmentRequest.getBody())
-                .isEqualTo(START_TASK_ASSIGNMENT_REQUEST_WITH_COMPRESSION.toByteArray());
-        expectedHeaders.put(CONTENT_LENGTH_HDR, String.valueOf(23));
-        expectedHeaders.put(CONTENT_TYPE_HDR, PROTOBUF_CONTENT_TYPE);
-        expectedHeaders.put(FCP_OWNER_ID_DIGEST, OWNER_ID + "-" + OWNER_ID_CERT_DIGEST);
-        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders())
-                .containsAtLeastEntriesIn(expectedHeaders);
-        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders()).hasSize(headerSize);
-        String idempotencyKey =
-                actualStartTaskAssignmentRequest.getExtraHeaders().get(ODP_IDEMPOTENCY_KEY);
-        assertNotNull(idempotencyKey);
-        String timestamp = idempotencyKey.split(" - ")[0];
-        assertThat(Long.parseLong(timestamp)).isLessThan(System.currentTimeMillis());
-        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders())
-                .containsAtLeastEntriesIn(expectedHeaders);
-    }
-
     @Test
-    public void testIssueCheckin_unauthenticatedDisallowed() {
-        // insert authorization token
-        ODPAuthorizationToken authToken = createAuthToken();
-        mODPAuthorizationTokenDao.insertAuthorizationToken(authToken);
-        assertThat(mODPAuthorizationTokenDao.getUnexpiredAuthorizationToken(OWNER_ID))
-                .isEqualTo(authToken);
+    public void testIssueCheckin_unauthenticatedWithSecondTry() {
+        insertAuthToken();
         setUpHttpFederatedProtocol(
-                createUnauthenticatedTAResponse(),
+                createUnauthenticatedResponse(),
                 createPlanHttpResponse(),
                 checkpointHttpResponse(),
                 createReportResultHttpResponse(),
                 SUCCESS_EMPTY_HTTP_RESPONSE);
 
+        AuthorizationContext authContext = createAuthContext();
+        authContext.updateAuthState(AUTH_METADATA);
         ExecutionException exception =
                 assertThrows(
                         ExecutionException.class,
-                        () ->
-                                mHttpFederatedProtocol
-                                        .issueCheckin(
-                                                OWNER_ID,
-                                                OWNER_ID_CERT_DIGEST,
-                                                DEFAULT_ALLOW_UNAUTHENTICATED)
-                                        .get());
+                        () -> mHttpFederatedProtocol.createTaskAssignment(authContext).get());
 
         assertThat(exception.getCause()).isInstanceOf(IllegalStateException.class);
         assertThat(exception.getCause()).hasMessageThat().contains("failed: 401");
@@ -393,10 +376,7 @@ public final class HttpFederatedProtocolTest {
                         ExecutionException.class,
                         () ->
                                 mHttpFederatedProtocol
-                                        .issueCheckin(
-                                                OWNER_ID,
-                                                OWNER_ID_CERT_DIGEST,
-                                                DEFAULT_ALLOW_UNAUTHENTICATED)
+                                        .createTaskAssignment(createAuthContext())
                                         .get());
 
         assertThat(exception.getCause()).isInstanceOf(IllegalStateException.class);
@@ -411,9 +391,12 @@ public final class HttpFederatedProtocolTest {
     public void testIssueCheckin_withAttestationRecord() throws Exception {
         setUpHttpFederatedProtocol();
 
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol
+                        .createTaskAssignment(createAuthContextWithAttestationRecord())
+                        .get();
         mHttpFederatedProtocol
-                .issueCheckin(
-                        OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED, KA_RECORD)
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
                 .get();
 
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
@@ -469,13 +452,10 @@ public final class HttpFederatedProtocolTest {
         when(mMockHttpClient.performRequestAsyncWithRetry(any()))
                 .thenReturn(immediateFuture(httpResponse));
 
-        CheckinResult checkinResult =
-                mHttpFederatedProtocol
-                        .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
-                        .get();
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
 
-        assertThat(checkinResult.getRejectionInfo()).isNotNull();
-        assertThat(checkinResult.getRejectionInfo()).isEqualTo(RejectionInfo.getDefaultInstance());
+        assertThat(taskAssignmentResponse.hasRejectionInfo()).isTrue();
         verify(mTrainingEventLogger).logCheckinStarted();
         verify(mTrainingEventLogger).logCheckinRejected(mNetworkStatsArgumentCaptor.capture());
         NetworkStats networkStats = mNetworkStatsArgumentCaptor.getValue();
@@ -498,15 +478,15 @@ public final class HttpFederatedProtocolTest {
                 /** uploadResultHttpResponse= */
                 null);
 
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         ExecutionException exception =
                 assertThrows(
                         ExecutionException.class,
                         () ->
                                 mHttpFederatedProtocol
-                                        .issueCheckin(
-                                                OWNER_ID,
-                                                OWNER_ID_CERT_DIGEST,
-                                                DEFAULT_ALLOW_UNAUTHENTICATED)
+                                        .downloadTaskAssignment(
+                                                taskAssignmentResponse.getTaskAssignment())
                                         .get());
 
         assertThat(exception).hasCauseThat().isInstanceOf(IllegalStateException.class);
@@ -531,16 +511,15 @@ public final class HttpFederatedProtocolTest {
                 null,
                 /** uploadResultHttpResponse= */
                 null);
-
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         ExecutionException exception =
                 assertThrows(
                         ExecutionException.class,
                         () ->
                                 mHttpFederatedProtocol
-                                        .issueCheckin(
-                                                OWNER_ID,
-                                                OWNER_ID_CERT_DIGEST,
-                                                DEFAULT_ALLOW_UNAUTHENTICATED)
+                                        .downloadTaskAssignment(
+                                                taskAssignmentResponse.getTaskAssignment())
                                         .get());
 
         assertThat(exception).hasCauseThat().isInstanceOf(IllegalStateException.class);
@@ -553,19 +532,52 @@ public final class HttpFederatedProtocolTest {
 
         setUpHttpFederatedProtocol();
         // Setup task id, aggregation id for report result.
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         mHttpFederatedProtocol
-                .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
                 .get();
 
-        mHttpFederatedProtocol.reportResult(computationResult, ENCRYPTION_KEY).get();
+        mHttpFederatedProtocol
+                .reportResult(computationResult, ENCRYPTION_KEY, createAuthContext())
+                .get();
 
         // Verify ReportResult request.
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
         assertThat(actualHttpRequests).hasSize(4);
-        FederatedComputeHttpRequest acutalReportResultRequest = actualHttpRequests.get(3);
+        FederatedComputeHttpRequest actualReportResultRequest = actualHttpRequests.get(3);
         ReportResultRequest reportResultRequest =
                 ReportResultRequest.newBuilder().setResult(Result.FAILED).build();
-        assertThat(acutalReportResultRequest.getBody())
+        assertThat(actualReportResultRequest.getBody())
+                .isEqualTo(reportResultRequest.toByteArray());
+    }
+
+    @Test
+    public void testReportNotEligibleTrainingResult_returnSuccess() throws Exception {
+        ComputationResult computationResult =
+                new ComputationResult(
+                        createOutputCheckpointFile(), FL_RUNNER_NOT_ELIGIBLE_RESULT, null);
+
+        setUpHttpFederatedProtocol();
+        // Setup task id, aggregation id for report result.
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+        mHttpFederatedProtocol
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
+                .get();
+
+        mHttpFederatedProtocol
+                .reportResult(computationResult, ENCRYPTION_KEY, createAuthContext())
+                .get();
+
+        // Verify ReportResult request.
+        List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
+        assertThat(actualHttpRequests).hasSize(4);
+        FederatedComputeHttpRequest actualReportResultRequest = actualHttpRequests.get(3);
+        ReportResultRequest reportResultRequest =
+                ReportResultRequest.newBuilder().setResult(Result.NOT_ELIGIBLE).build();
+        checkActualReportResultRequest(actualReportResultRequest);
+        assertThat(actualReportResultRequest.getBody())
                 .isEqualTo(reportResultRequest.toByteArray());
         verify(mTrainingEventLogger).logFailureResultUploadStarted();
         verify(mTrainingEventLogger)
@@ -582,31 +594,31 @@ public final class HttpFederatedProtocolTest {
 
         setUpHttpFederatedProtocol();
         // Setup task id, aggregation id for report result.
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         mHttpFederatedProtocol
-                .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
                 .get();
 
-        mHttpFederatedProtocol.reportResult(computationResult, ENCRYPTION_KEY).get();
+        mHttpFederatedProtocol
+                .reportResult(computationResult, ENCRYPTION_KEY, createAuthContext())
+                .get();
 
         // Verify ReportResult request.
         List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
-        FederatedComputeHttpRequest acutalReportResultRequest = actualHttpRequests.get(3);
-        assertThat(acutalReportResultRequest.getUri()).isEqualTo(REPORT_RESULT_URI);
-        assertThat(acutalReportResultRequest.getHttpMethod()).isEqualTo(HttpMethod.PUT);
+        FederatedComputeHttpRequest actualReportResultRequest = actualHttpRequests.get(3);
+
+        checkActualReportResultRequest(actualReportResultRequest);
         ReportResultRequest reportResultRequest =
                 ReportResultRequest.newBuilder().setResult(Result.COMPLETED).build();
-        assertThat(acutalReportResultRequest.getBody())
+        assertThat(actualReportResultRequest.getBody())
                 .isEqualTo(reportResultRequest.toByteArray());
-        HashMap<String, String> expectedHeaders = new HashMap<>();
-        expectedHeaders.put(CONTENT_LENGTH_HDR, String.valueOf(2));
-        expectedHeaders.put(CONTENT_TYPE_HDR, PROTOBUF_CONTENT_TYPE);
-        assertThat(acutalReportResultRequest.getExtraHeaders()).isEqualTo(expectedHeaders);
 
         // Verify upload data request.
         FederatedComputeHttpRequest actualDataUploadRequest = actualHttpRequests.get(4);
         assertThat(actualDataUploadRequest.getUri()).isEqualTo(UPLOAD_LOCATION_URI);
-        assertThat(acutalReportResultRequest.getHttpMethod()).isEqualTo(HttpMethod.PUT);
-        expectedHeaders = new HashMap<>();
+        assertThat(actualReportResultRequest.getHttpMethod()).isEqualTo(HttpMethod.PUT);
+        HashMap<String, String> expectedHeaders = new HashMap<>();
         expectedHeaders.put(CONTENT_TYPE_HDR, OCTET_STREAM);
         if (mSupportCompression) {
             expectedHeaders.put(CONTENT_ENCODING_HDR, GZIP_ENCODING_HDR);
@@ -648,20 +660,137 @@ public final class HttpFederatedProtocolTest {
                 reportResultHttpResponse,
                 null);
 
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         mHttpFederatedProtocol
-                .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
                 .get();
         ExecutionException exception =
                 assertThrows(
                         ExecutionException.class,
                         () ->
                                 mHttpFederatedProtocol
-                                        .reportResult(computationResult, ENCRYPTION_KEY)
+                                        .reportResult(
+                                                computationResult,
+                                                ENCRYPTION_KEY,
+                                                createAuthContext())
                                         .get());
 
         assertThat(exception.getCause()).isInstanceOf(IllegalStateException.class);
         assertThat(exception.getCause()).hasMessageThat().isEqualTo("ReportResult failed: 503");
         verify(mTrainingEventLogger).logResultUploadStarted();
+    }
+
+    @Test
+    public void testReportResult_unauthenticated() throws Exception {
+        insertAuthToken();
+        setUpHttpFederatedProtocol(
+                createStartTaskAssignmentHttpResponse(),
+                createPlanHttpResponse(),
+                checkpointHttpResponse(),
+                createUnauthenticatedResponse(),
+                SUCCESS_EMPTY_HTTP_RESPONSE);
+        ComputationResult computationResult =
+                new ComputationResult(createOutputCheckpointFile(), FL_RUNNER_SUCCESS_RESULT, null);
+
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+        mHttpFederatedProtocol
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
+                .get();
+
+        RejectionInfo reportResultRejection =
+                mHttpFederatedProtocol
+                        .reportResult(computationResult, ENCRYPTION_KEY, createAuthContext())
+                        .get();
+
+        // Verify ReportResult request.
+        List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
+        FederatedComputeHttpRequest actualReportResultRequest = actualHttpRequests.get(3);
+        checkActualReportResultRequest(actualReportResultRequest);
+        ReportResultRequest reportResultRequest =
+                ReportResultRequest.newBuilder().setResult(Result.COMPLETED).build();
+        assertThat(actualReportResultRequest.getBody())
+                .isEqualTo(reportResultRequest.toByteArray());
+        assertThat(
+                        reportResultRejection
+                                .getAuthMetadata()
+                                .getKeyAttestationMetadata()
+                                .getChallenge())
+                .isEqualTo(ByteString.copyFrom(CHALLENGE));
+    }
+
+    @Test
+    public void testReportResult_withAttestation() throws Exception {
+        setUpHttpFederatedProtocol();
+        ComputationResult computationResult =
+                new ComputationResult(createOutputCheckpointFile(), FL_RUNNER_SUCCESS_RESULT, null);
+
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+        mHttpFederatedProtocol
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
+                .get();
+
+        RejectionInfo reportResultRejection =
+                mHttpFederatedProtocol
+                        .reportResult(
+                                computationResult,
+                                ENCRYPTION_KEY,
+                                createAuthContextWithAttestationRecord())
+                        .get();
+
+        assertThat(reportResultRejection).isNull();
+        // Verify ReportResult request.
+        List<FederatedComputeHttpRequest> actualHttpRequests = mHttpRequestCaptor.getAllValues();
+        FederatedComputeHttpRequest actualReportResultRequest = actualHttpRequests.get(3);
+        checkActualReportResultRequest(actualReportResultRequest);
+        ReportResultRequest reportResultRequest =
+                ReportResultRequest.newBuilder().setResult(Result.COMPLETED).build();
+        assertThat(actualReportResultRequest.getBody())
+                .isEqualTo(reportResultRequest.toByteArray());
+        assertThat(
+                        actualReportResultRequest
+                                .getExtraHeaders()
+                                .getOrDefault(ODP_AUTHENTICATION_KEY, ""))
+                .isEqualTo(new JSONArray(KA_RECORD).toString());
+        assertThat(
+                        actualReportResultRequest
+                                .getExtraHeaders()
+                                .getOrDefault(ODP_AUTHORIZATION_KEY, "")
+                                .length())
+                .isEqualTo(36); // UUID Length
+    }
+
+    @Test
+    public void testReportResult_throws() throws Exception {
+        setUpHttpFederatedProtocol(
+                createStartTaskAssignmentHttpResponse(),
+                createPlanHttpResponse(),
+                checkpointHttpResponse(),
+                createUnauthenticatedResponse(),
+                SUCCESS_EMPTY_HTTP_RESPONSE);
+        ComputationResult computationResult =
+                new ComputationResult(createOutputCheckpointFile(), FL_RUNNER_SUCCESS_RESULT, null);
+
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
+        mHttpFederatedProtocol
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
+                .get();
+        // Pretend 1st auth retry already failed.
+        AuthorizationContext authContext = createAuthContext();
+        authContext.updateAuthState(AUTH_METADATA);
+
+        ExecutionException exception =
+                assertThrows(
+                        ExecutionException.class,
+                        () ->
+                                mHttpFederatedProtocol
+                                        .reportResult(
+                                                computationResult, ENCRYPTION_KEY, authContext)
+                                        .get());
+        assertThat(exception.getMessage()).contains("401");
     }
 
     @Test
@@ -678,19 +807,54 @@ public final class HttpFederatedProtocolTest {
                 createReportResultHttpResponse(),
                 uploadResultHttpResponse);
 
+        CreateTaskAssignmentResponse taskAssignmentResponse =
+                mHttpFederatedProtocol.createTaskAssignment(createAuthContext()).get();
         mHttpFederatedProtocol
-                .issueCheckin(OWNER_ID, OWNER_ID_CERT_DIGEST, DEFAULT_ALLOW_UNAUTHENTICATED)
+                .downloadTaskAssignment(taskAssignmentResponse.getTaskAssignment())
                 .get();
         ExecutionException exception =
                 assertThrows(
                         ExecutionException.class,
                         () ->
                                 mHttpFederatedProtocol
-                                        .reportResult(computationResult, ENCRYPTION_KEY)
+                                        .reportResult(
+                                                computationResult,
+                                                ENCRYPTION_KEY,
+                                                createAuthContext())
                                         .get());
 
         assertThat(exception).hasCauseThat().isInstanceOf(IllegalStateException.class);
         assertThat(exception.getCause()).hasMessageThat().isEqualTo("Upload result failed: 503");
+    }
+
+    private void insertAuthToken() {
+        // insert authorization token
+        ODPAuthorizationToken authToken = createAuthToken();
+        mODPAuthorizationTokenDao.insertAuthorizationToken(authToken);
+        assertThat(mODPAuthorizationTokenDao.getUnexpiredAuthorizationToken(OWNER_ID))
+                .isEqualTo(authToken);
+    }
+
+    private AuthorizationContext createAuthContext() {
+        return new AuthorizationContext(
+                OWNER_ID,
+                OWNER_ID_CERT_DIGEST,
+                mODPAuthorizationTokenDao,
+                mMockKeyAttestation,
+                mClock);
+    }
+
+    private AuthorizationContext createAuthContextWithAttestationRecord() {
+        AuthorizationContext authContext =
+                new AuthorizationContext(
+                        OWNER_ID,
+                        OWNER_ID_CERT_DIGEST,
+                        mODPAuthorizationTokenDao,
+                        mMockKeyAttestation,
+                        mClock);
+        // Pretend 1st try failed.
+        authContext.updateAuthState(AUTH_METADATA);
+        return authContext;
     }
 
     private String createOutputCheckpointFile() throws Exception {
@@ -836,21 +1000,12 @@ public final class HttpFederatedProtocolTest {
                 .build();
     }
 
-    private FederatedComputeHttpResponse createUnauthenticatedTAResponse() {
+    private FederatedComputeHttpResponse createUnauthenticatedResponse() {
         CreateTaskAssignmentResponse payload =
                 CreateTaskAssignmentResponse.newBuilder()
                         .setRejectionInfo(
                                 RejectionInfo.newBuilder()
-                                        .setAuthMetadata(
-                                                AuthenticationMetadata.newBuilder()
-                                                        .setKeyAttestationMetadata(
-                                                                KeyAttestationAuthMetadata
-                                                                        .newBuilder()
-                                                                        .setChallenge(
-                                                                                ByteString.copyFrom(
-                                                                                        CHALLENGE))
-                                                                        .build())
-                                                        .build())
+                                        .setAuthMetadata(AUTH_METADATA)
                                         .setReason(RejectionReason.Enum.UNAUTHENTICATED)
                                         .build())
                         .build();
@@ -859,5 +1014,40 @@ public final class HttpFederatedProtocolTest {
                 .setPayload(payload.toByteArray())
                 .setHeaders(new HashMap<>())
                 .build();
+    }
+
+    private void checkActualTARequest(
+            FederatedComputeHttpRequest actualStartTaskAssignmentRequest, int headerSize) {
+        assertThat(actualStartTaskAssignmentRequest.getUri()).isEqualTo(START_TASK_ASSIGNMENT_URI);
+        assertThat(actualStartTaskAssignmentRequest.getHttpMethod()).isEqualTo(HttpMethod.POST);
+
+        // check header
+        HashMap<String, String> expectedHeaders = new HashMap<>();
+        assertThat(actualStartTaskAssignmentRequest.getBody())
+                .isEqualTo(START_TASK_ASSIGNMENT_REQUEST_WITH_COMPRESSION.toByteArray());
+        expectedHeaders.put(CONTENT_LENGTH_HDR, String.valueOf(23));
+        expectedHeaders.put(CONTENT_TYPE_HDR, PROTOBUF_CONTENT_TYPE);
+        expectedHeaders.put(FCP_OWNER_ID_DIGEST, OWNER_ID + "-" + OWNER_ID_CERT_DIGEST);
+        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders())
+                .containsAtLeastEntriesIn(expectedHeaders);
+        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders()).hasSize(headerSize);
+        String idempotencyKey =
+                actualStartTaskAssignmentRequest.getExtraHeaders().get(ODP_IDEMPOTENCY_KEY);
+        assertNotNull(idempotencyKey);
+        String timestamp = idempotencyKey.split(" - ")[0];
+        assertThat(Long.parseLong(timestamp)).isLessThan(System.currentTimeMillis());
+        assertThat(actualStartTaskAssignmentRequest.getExtraHeaders())
+                .containsAtLeastEntriesIn(expectedHeaders);
+    }
+
+    private void checkActualReportResultRequest(
+            FederatedComputeHttpRequest actualReportResultRequest) {
+        assertThat(actualReportResultRequest.getUri()).isEqualTo(REPORT_RESULT_URI);
+        assertThat(actualReportResultRequest.getHttpMethod()).isEqualTo(HttpMethod.PUT);
+        HashMap<String, String> expectedHeaders = new HashMap<>();
+        expectedHeaders.put(CONTENT_LENGTH_HDR, String.valueOf(2));
+        expectedHeaders.put(CONTENT_TYPE_HDR, PROTOBUF_CONTENT_TYPE);
+        assertThat(actualReportResultRequest.getExtraHeaders())
+                .containsAtLeastEntriesIn(expectedHeaders);
     }
 }

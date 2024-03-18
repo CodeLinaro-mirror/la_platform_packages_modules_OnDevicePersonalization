@@ -26,9 +26,11 @@ import android.federatedcompute.FederatedComputeManager;
 import android.federatedcompute.common.ClientConstants;
 import android.federatedcompute.common.ScheduleFederatedComputeRequest;
 import android.federatedcompute.common.TrainingOptions;
+import android.os.Binder;
 import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.os.SystemProperties;
+import android.provider.DeviceConfig;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
@@ -103,6 +105,21 @@ public class FederatedComputeServiceImpl extends IFederatedComputeService.Stub {
                                 + mCallingService.getPackageName() + " to " + overrideManifestUrl);
                         url = overrideManifestUrl;
                     }
+                    final long originalCallingIdentity = Binder.clearCallingIdentity();
+                    try {
+                        String deviceConfigOverrideUrl = DeviceConfig.getString(
+                                /* namespace= */ "on_device_personalization",
+                                /* name= */ OVERRIDE_FC_SERVER_URL,
+                                /* defaultValue= */ "");
+                        if (!deviceConfigOverrideUrl.isEmpty()) {
+                            sLogger.d(TAG + ": Overriding fc server URL for package "
+                                    + mCallingService.getPackageName() + " to "
+                                    + deviceConfigOverrideUrl);
+                            url = deviceConfigOverrideUrl;
+                        }
+                    } finally {
+                        Binder.restoreCallingIdentity(originalCallingIdentity);
+                    }
                 }
             }
 
@@ -114,7 +131,9 @@ public class FederatedComputeServiceImpl extends IFederatedComputeService.Stub {
                 return;
             }
 
-            ContextData contextData = new ContextData(mCallingService.getPackageName());
+            ContextData contextData =
+                    new ContextData(
+                            mCallingService.getPackageName(), mCallingService.getClassName());
             TrainingOptions trainingOptionsWithContext =
                     new TrainingOptions.Builder()
                             .setContextData(ContextData.toByteArray(contextData))
@@ -122,9 +141,6 @@ public class FederatedComputeServiceImpl extends IFederatedComputeService.Stub {
                             .setPopulationName(trainingOptions.getPopulationName())
                             .setServerAddress(url)
                             .setOwnerComponentName(mCallingService)
-                            .setOwnerIdentifierCertDigest(
-                                    PackageUtils.getCertDigest(
-                                            mApplicationContext, mCallingService.getPackageName()))
                             .build();
             ScheduleFederatedComputeRequest request =
                     new ScheduleFederatedComputeRequest.Builder()
@@ -138,7 +154,7 @@ public class FederatedComputeServiceImpl extends IFederatedComputeService.Stub {
                         public void onResult(Object result) {
                             mInjector.getEventsDao(mApplicationContext).updateOrInsertEventState(
                                     new EventState.Builder()
-                                            .setServicePackageName(mCallingService.getPackageName())
+                                            .setServiceName(mCallingService.getPackageName())
                                             .setTaskIdentifier(trainingOptions.getPopulationName())
                                             .setToken(new byte[]{})
                                             .build());
@@ -168,6 +184,7 @@ public class FederatedComputeServiceImpl extends IFederatedComputeService.Stub {
             return;
         }
         mFederatedComputeManager.cancel(
+                mCallingService,
                 populationName,
                 mInjector.getExecutor(),
                 new OutcomeReceiver<>() {

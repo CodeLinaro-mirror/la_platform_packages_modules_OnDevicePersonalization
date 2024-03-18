@@ -41,7 +41,13 @@ public class OnDevicePersonalizationPermissions {
             "android.permission.ondevicepersonalization.MODIFY_ONDEVICEPERSONALIZATION_STATE";
 
     /**
-     * verify that caller has the permission to modify ODP's enablement state.
+     * The permission required for callers to send measurement events to ODP.
+     */
+    public static final String NOTIFY_MEASUREMENT_EVENT =
+            "android.permission.ondevicepersonalization.NOTIFY_MEASUREMENT_EVENT";
+
+    /**
+     * verify that caller has the specified permission.
      * @throws SecurityException otherwise.
      *
      * @hide

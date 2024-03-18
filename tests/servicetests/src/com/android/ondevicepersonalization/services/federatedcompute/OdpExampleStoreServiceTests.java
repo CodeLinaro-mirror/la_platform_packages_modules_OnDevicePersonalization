@@ -43,6 +43,8 @@ import android.os.RemoteException;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.android.compatibility.common.util.ShellUtils;
+import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
 import com.android.ondevicepersonalization.services.data.OnDevicePersonalizationDbHelper;
 import com.android.ondevicepersonalization.services.data.events.EventState;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
@@ -51,14 +53,16 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
+import org.junit.runners.Parameterized;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-@RunWith(JUnit4.class)
+@RunWith(Parameterized.class)
 public class OdpExampleStoreServiceTests {
     private final Context mContext = ApplicationProvider.getApplicationContext();
     @Mock Context mMockContext;
@@ -72,13 +76,32 @@ public class OdpExampleStoreServiceTests {
 
     private final EventsDao mEventsDao = EventsDao.getInstanceForTest(mContext);
 
+    @Parameterized.Parameter(0)
+    public boolean mIsSipFeatureEnabled;
+
+    @Parameterized.Parameters
+    public static Collection<Object[]> data() {
+        return Arrays.asList(
+                new Object[][] {
+                        {true}, {false}
+                }
+        );
+    }
+
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         initMocks(this);
         when(mMockContext.getApplicationContext()).thenReturn(mContext);
         mQueryCallbackOnSuccessCalled = false;
         mQueryCallbackOnFailureCalled = false;
         mLatch = new CountDownLatch(1);
+
+        PhFlagsTestUtil.setUpDeviceConfigPermissions();
+        ShellUtils.runShellCommand("settings put global hidden_api_policy 1");
+        ShellUtils.runShellCommand(
+                "device_config put on_device_personalization "
+                        + "shared_isolated_process_feature_enabled "
+                        + mIsSipFeatureEnabled);
     }
 
     @Test
@@ -86,7 +109,7 @@ public class OdpExampleStoreServiceTests {
         mEventsDao.updateOrInsertEventState(
                 new EventState.Builder()
                         .setTaskIdentifier("PopulationName")
-                        .setServicePackageName(mContext.getPackageName())
+                        .setServiceName(mContext.getPackageName())
                         .setToken()
                         .build());
         mService.onCreate();
@@ -106,7 +129,7 @@ public class OdpExampleStoreServiceTests {
         binder.startQuery(input, callback);
         assertTrue(
                 "timeout reached while waiting for countdownlatch!",
-                mLatch.await(1000, TimeUnit.MILLISECONDS));
+                mLatch.await(5000, TimeUnit.MILLISECONDS));
 
         assertTrue(mQueryCallbackOnSuccessCalled);
         assertFalse(mQueryCallbackOnFailureCalled);

@@ -20,6 +20,8 @@ import android.adservices.ondevicepersonalization.Constants;
 import android.adservices.ondevicepersonalization.DownloadCompletedOutputParcel;
 import android.adservices.ondevicepersonalization.DownloadInputParcel;
 import android.adservices.ondevicepersonalization.UserData;
+import android.adservices.ondevicepersonalization.aidl.IIsolatedModelService;
+import android.annotation.NonNull;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -27,10 +29,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.JsonReader;
 
-
-import com.android.ondevicepersonalization.internal.util.ByteArrayParceledListSlice;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
-import com.android.ondevicepersonalization.internal.util.StringParceledListSlice;
+import com.android.ondevicepersonalization.services.FlagsFactory;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
 import com.android.ondevicepersonalization.services.data.DataAccessServiceImpl;
 import com.android.ondevicepersonalization.services.data.vendor.OnDevicePersonalizationVendorDataDao;
@@ -38,13 +38,13 @@ import com.android.ondevicepersonalization.services.data.vendor.VendorData;
 import com.android.ondevicepersonalization.services.download.mdd.MobileDataDownloadFactory;
 import com.android.ondevicepersonalization.services.download.mdd.OnDevicePersonalizationFileGroupPopulator;
 import com.android.ondevicepersonalization.services.federatedcompute.FederatedComputeServiceImpl;
+import com.android.ondevicepersonalization.services.inference.IsolatedModelServiceProvider;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
 import com.android.ondevicepersonalization.services.policyengine.UserDataAccessor;
 import com.android.ondevicepersonalization.services.process.IsolatedServiceInfo;
 import com.android.ondevicepersonalization.services.process.ProcessRunner;
 import com.android.ondevicepersonalization.services.process.ProcessRunnerImpl;
-import com.android.ondevicepersonalization.services.statsd.ApiCallStats;
-import com.android.ondevicepersonalization.services.statsd.OdpStatsdLogger;
+import com.android.ondevicepersonalization.services.process.SharedIsolatedProcessRunner;
 import com.android.ondevicepersonalization.services.util.Clock;
 import com.android.ondevicepersonalization.services.util.MonotonicClock;
 import com.android.ondevicepersonalization.services.util.PackageUtils;
@@ -67,6 +67,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,13 +84,18 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
     private final Context mContext;
     private OnDevicePersonalizationVendorDataDao mDao;
 
+    @NonNull
+    private IsolatedModelServiceProvider mModelServiceProvider;
+
     static class Injector {
         Clock getClock() {
             return MonotonicClock.getInstance();
         }
 
         ProcessRunner getProcessRunner() {
-            return ProcessRunnerImpl.getInstance();
+            return FlagsFactory.getFlags().isSharedIsolatedProcessFeatureEnabled()
+                    ? SharedIsolatedProcessRunner.getInstance()
+                    : ProcessRunnerImpl.getInstance();
         }
     }
 
@@ -141,9 +147,9 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
             // be caught by MDD maintenance based on stale and expiration settings.
             return FluentFuture.from(processDownloadedJsonFile(androidUri))
                     .transformAsync(unused -> mdd.removeFileGroup(
-                    RemoveFileGroupRequest.newBuilder().setGroupName(
-                            fileGroupName).build()),
-                    OnDevicePersonalizationExecutors.getBackgroundExecutor());
+                                    RemoveFileGroupRequest.newBuilder().setGroupName(
+                                            fileGroupName).build()),
+                            OnDevicePersonalizationExecutors.getBackgroundExecutor());
         } catch (PackageManager.NameNotFoundException e) {
             sLogger.d(TAG + ": NameNotFoundException for package: " + mPackageName);
         } catch (ExecutionException e) {
@@ -208,7 +214,7 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
                     mContext, mPackageName);
             ListenableFuture<IsolatedServiceInfo> loadFuture =
                     mInjector.getProcessRunner().loadIsolatedService(
-                        TASK_NAME, ComponentName.createRelative(mPackageName, className));
+                            TASK_NAME, ComponentName.createRelative(mPackageName, className));
             var resultFuture = FluentFuture.from(loadFuture)
                     .transformAsync(
                             result -> executeDownloadHandler(result, finalVendorDataMap),
@@ -225,9 +231,12 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
                             OnDevicePersonalizationExecutors.getBackgroundExecutor());
 
             var unused = Futures.whenAllComplete(loadFuture, resultFuture)
-                    .callAsync(() -> mInjector.getProcessRunner().unloadIsolatedService(
-                            loadFuture.get()),
-                        OnDevicePersonalizationExecutors.getBackgroundExecutor());
+                    .callAsync(() -> {
+                                mModelServiceProvider.unBindFromModelService();
+                                return mInjector.getProcessRunner().unloadIsolatedService(
+                                        loadFuture.get());
+                            },
+                            OnDevicePersonalizationExecutors.getBackgroundExecutor());
 
             return resultFuture;
         } catch (Exception e) {
@@ -276,22 +285,22 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
                         mContext);
         pluginParams.putBinder(Constants.EXTRA_FEDERATED_COMPUTE_SERVICE_BINDER, fcpBinder);
 
-        List<String> keys = new ArrayList<>();
-        List<byte[]> values = new ArrayList<>();
+        Map<String, byte[]> downloadedContent = new HashMap<>();
         for (String key : vendorDataMap.keySet()) {
-            keys.add(key);
-            values.add(vendorDataMap.get(key).getData());
+            downloadedContent.put(key, vendorDataMap.get(key).getData());
         }
-        StringParceledListSlice keysListSlice = new StringParceledListSlice(keys);
-        // This needs to be set to a small number >0 for the parcel.
-        keysListSlice.setInlineCountLimit(1);
-        ByteArrayParceledListSlice valuesListSlice = new ByteArrayParceledListSlice(values);
-        valuesListSlice.setInlineCountLimit(1);
+
+        DataAccessServiceImpl downloadedContentBinder = new DataAccessServiceImpl(
+                mPackageName, mContext, /* remoteData */ downloadedContent,
+                /* includeLocalData */ false, /* includeEventData */ false);
 
         DownloadInputParcel downloadInputParcel = new DownloadInputParcel.Builder()
-                .setDownloadedKeys(keysListSlice)
-                .setDownloadedValues(valuesListSlice)
+                .setDataAccessServiceBinder(downloadedContentBinder)
                 .build();
+
+        mModelServiceProvider = new IsolatedModelServiceProvider();
+        IIsolatedModelService modelService = mModelServiceProvider.getModelService(mContext);
+        pluginParams.putBinder(Constants.EXTRA_MODEL_SERVICE_BINDER, modelService.asBinder());
 
         pluginParams.putParcelable(Constants.EXTRA_INPUT, downloadInputParcel);
 
@@ -304,23 +313,25 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
                 pluginParams);
         return FluentFuture.from(result)
                 .transform(
-                    val -> {
-                        writeServiceRequestMetrics(
-                                val, isolatedServiceInfo.getStartTimeMillis(),
-                                Constants.STATUS_SUCCESS);
-                        return val;
-                    },
-                    OnDevicePersonalizationExecutors.getBackgroundExecutor()
+                        val -> {
+                            StatsUtils.writeServiceRequestMetrics(
+                                    val, mInjector.getClock(),
+                                    Constants.STATUS_SUCCESS,
+                                    isolatedServiceInfo.getStartTimeMillis());
+                            return val;
+                        },
+                        OnDevicePersonalizationExecutors.getBackgroundExecutor()
                 )
                 .catchingAsync(
-                    Exception.class,
-                    e -> {
-                        writeServiceRequestMetrics(
-                                null, isolatedServiceInfo.getStartTimeMillis(),
-                                Constants.STATUS_INTERNAL_ERROR);
-                        return Futures.immediateFailedFuture(e);
-                    },
-                    OnDevicePersonalizationExecutors.getBackgroundExecutor()
+                        Exception.class,
+                        e -> {
+                            StatsUtils.writeServiceRequestMetrics(
+                                    /* result= */ null, mInjector.getClock(),
+                                    Constants.STATUS_INTERNAL_ERROR,
+                                    isolatedServiceInfo.getStartTimeMillis());
+                            return Futures.immediateFailedFuture(e);
+                        },
+                        OnDevicePersonalizationExecutors.getBackgroundExecutor()
                 );
     }
 
@@ -341,6 +352,7 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
     private VendorData readContent(JsonReader reader) throws IOException {
         String key = null;
         byte[] data = null;
+        String encoding = null;
         reader.beginObject();
         while (reader.hasNext()) {
             String name = reader.nextName();
@@ -348,6 +360,8 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
                 key = reader.nextString();
             } else if (name.equals("data")) {
                 data = reader.nextString().getBytes(StandardCharsets.UTF_8);
+            } else if (name.equals("encoding")) {
+                encoding = reader.nextString();
             } else {
                 reader.skipValue();
             }
@@ -356,19 +370,13 @@ public class OnDevicePersonalizationDataProcessingAsyncCallable implements Async
         if (key == null || data == null) {
             return null;
         }
+        if (encoding != null && !encoding.isBlank()) {
+            if (encoding.strip().equalsIgnoreCase("base64")) {
+                data = Base64.getDecoder().decode(data);
+            } else if (!encoding.strip().equalsIgnoreCase("utf8")) {
+                return null;
+            }
+        }
         return new VendorData.Builder().setKey(key).setData(data).build();
-    }
-
-    private void writeServiceRequestMetrics(Bundle result, long startTimeMillis, int responseCode) {
-        int latencyMillis = (int) (mInjector.getClock().elapsedRealtime() - startTimeMillis);
-        int overheadLatencyMillis =
-                (int) StatsUtils.getOverheadLatencyMillis(latencyMillis, result);
-        ApiCallStats callStats =
-                new ApiCallStats.Builder(ApiCallStats.API_SERVICE_ON_DOWNLOAD_COMPLETED)
-                .setLatencyMillis(latencyMillis)
-                .setOverheadLatencyMillis(overheadLatencyMillis)
-                .setResponseCode(responseCode)
-                .build();
-        OdpStatsdLogger.getInstance().logApiCallStats(callStats);
     }
 }

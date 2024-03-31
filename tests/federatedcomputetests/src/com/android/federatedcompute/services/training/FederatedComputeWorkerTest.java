@@ -266,6 +266,8 @@ public final class FederatedComputeWorkerTest {
                                                     .build()))
                     .build();
     private static final Any FAKE_CRITERIA = Any.newBuilder().setTypeUrl("baz.com").build();
+    private static final List<String> KA_RECORD =
+            List.of("aasldkgjlaskdjgalskj", "aldkjglasdkjlasjg");
     private static final ExampleConsumption EXAMPLE_CONSUMPTION_1 =
             new ExampleConsumption.Builder()
                     .setTaskId(TASK_ID)
@@ -286,7 +288,7 @@ public final class FederatedComputeWorkerTest {
 
     @Mock private FederatedComputeEncryptionKeyManager mMockKeyManager;
 
-    private static KeyAttestation sSpyKeyAttestation;
+    @Mock private KeyAttestation mMockKeyAttestation;
 
     @Mock private ClientErrorLogger mMockClientErrorLogger;
 
@@ -331,14 +333,13 @@ public final class FederatedComputeWorkerTest {
                 spy(
                         HttpFederatedProtocol.create(
                                 SERVER_ADDRESS,
-                                "349990000",
+                                349990000,
                                 POPULATION_NAME,
                                 new HpkeJniEncrypter(),
                                 mMockTrainingEventLogger));
         mSpyResultCallbackHelper = spy(new ResultCallbackHelper(mContext));
         mSpyExampleStoreProvider = spy(new ExampleStoreServiceProvider());
         mTrainingTaskDao = FederatedTrainingTaskDao.getInstanceForTest(mContext);
-        sSpyKeyAttestation = spy(KeyAttestation.getInstance(mContext));
         mSpyWorker =
                 spy(
                         new FederatedComputeWorker(
@@ -370,6 +371,7 @@ public final class FederatedComputeWorkerTest {
         doReturn(List.of(ENCRYPTION_KEY))
                 .when(mMockKeyManager)
                 .getOrFetchActiveKeys(anyInt(), anyInt());
+        doReturn(KA_RECORD).when(mMockKeyAttestation).generateAttestationRecord(any(), anyString());
     }
 
     @After
@@ -508,7 +510,7 @@ public final class FederatedComputeWorkerTest {
         // Verify first issueCheckin call.
         verify(mSpyHttpFederatedProtocol, times(2)).createTaskAssignment(any());
         // After the first issueCheckin, the FederatedComputeWorker would do the key attestation.
-        verify(sSpyKeyAttestation).generateAttestationRecord(eq(CHALLENGE), anyString());
+        verify(mMockKeyAttestation).generateAttestationRecord(eq(CHALLENGE), anyString());
         assertThat(result.getContributionResult()).isEqualTo(ContributionResult.SUCCESS);
         verify(mMockJobManager)
                 .onTrainingCompleted(
@@ -614,7 +616,7 @@ public final class FederatedComputeWorkerTest {
         // Verify two reportResult calls.
         verify(mSpyHttpFederatedProtocol, times(2)).reportResult(any(), any(), any());
         // After the first reportResult, the FederatedComputeWorker would do the key attestation.
-        verify(sSpyKeyAttestation).generateAttestationRecord(eq(CHALLENGE), anyString());
+        verify(mMockKeyAttestation).generateAttestationRecord(eq(CHALLENGE), anyString());
         assertThat(result.getContributionResult()).isEqualTo(ContributionResult.SUCCESS);
         verify(mMockJobManager)
                 .onTrainingCompleted(
@@ -640,7 +642,7 @@ public final class FederatedComputeWorkerTest {
                         anyInt(), anyString(), any(), any(), eq(ContributionResult.FAIL));
         verify(mSpyExampleStoreProvider, times(0)).unbindFromExampleStoreService();
         verify(mSpyWorker, times(1))
-                .reportFailureResultToServer(computationResultCaptor.capture(), any());
+                .reportFailureResultToServer(computationResultCaptor.capture(), any(), any());
         ComputationResult computationResult = computationResultCaptor.getValue();
         assertNotNull(computationResult.getFlRunnerResult());
         assertEquals(
@@ -710,7 +712,7 @@ public final class FederatedComputeWorkerTest {
                         anyInt(), anyString(), any(), any(), eq(ContributionResult.FAIL));
 
         verify(mSpyWorker, times(1))
-                .reportFailureResultToServer(computationResultCaptor.capture(), any());
+                .reportFailureResultToServer(computationResultCaptor.capture(), any(), any());
         ComputationResult computationResult = computationResultCaptor.getValue();
         assertNotNull(computationResult.getFlRunnerResult());
         assertEquals(
@@ -934,7 +936,7 @@ public final class FederatedComputeWorkerTest {
                 ExecutionException.class,
                 () -> mSpyWorker.startTrainingRun(JOB_ID, mMockJobServiceOnFinishCallback).get());
 
-        verify(mSpyWorker).reportFailureResultToServer(any(), any());
+        verify(mSpyWorker).reportFailureResultToServer(any(), any(), any());
     }
 
     private void setUpExampleStoreService() {
@@ -958,7 +960,7 @@ public final class FederatedComputeWorkerTest {
     }
 
     private void setUpReportFailureToServerCallback() {
-        doNothing().when(mSpyWorker).reportFailureResultToServer(any(), any());
+        doNothing().when(mSpyWorker).reportFailureResultToServer(any(), any(), any());
     }
 
     private static class TestExampleStoreService extends IExampleStoreService.Stub {
@@ -999,14 +1001,14 @@ public final class FederatedComputeWorkerTest {
                     ownerId,
                     owerCert,
                     ODPAuthorizationTokenDao.getInstanceForTest(mContext),
-                    sSpyKeyAttestation,
+                    mMockKeyAttestation,
                     MonotonicClock.getInstance());
         }
 
         @Override
         HttpFederatedProtocol getHttpFederatedProtocol(
                 String serverAddress,
-                String clientVersion,
+                long clientVersion,
                 String populationName,
                 TrainingEventLogger trainingEventLogger) {
             return mSpyHttpFederatedProtocol;

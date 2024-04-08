@@ -20,6 +20,7 @@ import static android.adservices.ondevicepersonalization.OnDevicePersonalization
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
@@ -37,22 +38,23 @@ import androidx.test.core.app.ApplicationProvider;
 
 import com.android.compatibility.common.util.ShellUtils;
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.modules.utils.testing.ExtendedMockitoRule;
+import com.android.modules.utils.testing.TestableDeviceConfig;
 import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
+import com.android.ondevicepersonalization.services.data.DbUtils;
 import com.android.ondevicepersonalization.services.data.OnDevicePersonalizationDbHelper;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
 import com.android.ondevicepersonalization.services.data.events.Query;
 import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.util.OnDevicePersonalizationFlatbufferUtils;
-import com.android.ondevicepersonalization.services.util.PrivacyUtils;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.MockitoSession;
 import org.mockito.quality.Strictness;
 
 import java.util.ArrayList;
@@ -69,26 +71,26 @@ public class WebTriggerFlowTest {
     private boolean mCallbackSuccess;
     private boolean mCallbackError;
     private int mCallbackErrorCode;
-    private MockitoSession mSession;
     private ServiceFlowOrchestrator mSfo;
 
     @Mock UserPrivacyStatus mUserPrivacyStatus;
+
+    @Rule
+    public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
+            .addStaticMockFixtures(TestableDeviceConfig::new)
+            .spyStatic(UserPrivacyStatus.class)
+            .setStrictness(Strictness.LENIENT)
+            .build();
 
     @Before
     public void setup() throws Exception {
         PhFlagsTestUtil.setUpDeviceConfigPermissions();
         ShellUtils.runShellCommand("settings put global hidden_api_policy 1");
-        ShellUtils.runShellCommand(
-                "device_config put on_device_personalization global_kill_switch false");
-
-        MockitoAnnotations.initMocks(this);
-        mSession = ExtendedMockito.mockitoSession()
-                        .spyStatic(UserPrivacyStatus.class)
-                        .spyStatic(PrivacyUtils.class)
-                        .strictness(Strictness.LENIENT)
-                        .startMocking();
+        PhFlagsTestUtil.disableGlobalKillSwitch();
 
         ExtendedMockito.doReturn(mUserPrivacyStatus).when(UserPrivacyStatus::getInstance);
+        doReturn(true).when(mUserPrivacyStatus).isPersonalizationStatusEnabled();
+        doReturn(true).when(mUserPrivacyStatus).isMeasurementEnabled();
 
         setUpTestData();
 
@@ -100,15 +102,11 @@ public class WebTriggerFlowTest {
         mDbHelper.getWritableDatabase().close();
         mDbHelper.getReadableDatabase().close();
         mDbHelper.close();
-        if (mSession != null) {
-            mSession.finishMocking();
-        }
     }
 
     @Test
     public void testWebTriggerFlow_GlobalKillswitchOn() throws Exception {
-        ShellUtils.runShellCommand(
-                "device_config put on_device_personalization global_kill_switch true");
+        PhFlagsTestUtil.enableGlobalKillSwitch();
 
         mSfo.schedule(ServiceFlowType.WEB_TRIGGER_FLOW, getWebTriggerParams(), mContext,
                 new TestWebCallback(), 100L);
@@ -116,6 +114,30 @@ public class WebTriggerFlowTest {
 
         assertTrue(mCallbackError);
         assertEquals(Constants.STATUS_INTERNAL_ERROR, mCallbackErrorCode);
+    }
+
+    @Test
+    public void testWebTriggerFlow_PersonalizationDisabled() throws Exception {
+        doReturn(false).when(mUserPrivacyStatus).isPersonalizationStatusEnabled();
+
+        mSfo.schedule(ServiceFlowType.WEB_TRIGGER_FLOW, getWebTriggerParams(), mContext,
+                new TestWebCallback(), 100L);
+        mLatch.await();
+
+        assertTrue(mCallbackError);
+        assertEquals(Constants.STATUS_PERSONALIZATION_DISABLED, mCallbackErrorCode);
+    }
+
+    @Test
+    public void testWebTriggerFlow_MeasurementControlRevoked() throws Exception {
+        doReturn(false).when(mUserPrivacyStatus).isMeasurementEnabled();
+
+        mSfo.schedule(ServiceFlowType.WEB_TRIGGER_FLOW, getWebTriggerParams(), mContext,
+                new TestWebCallback(), 100L);
+        mLatch.await();
+
+        assertTrue(mCallbackError);
+        assertEquals(Constants.STATUS_PERSONALIZATION_DISABLED, mCallbackErrorCode);
     }
 
     @Test
@@ -247,10 +269,12 @@ public class WebTriggerFlowTest {
         ContentValues row2 = new ContentValues();
         row2.put("b", 2);
         rows.add(row2);
+        ComponentName service = new ComponentName("com.example.test", "cls");
         byte[] queryDataBytes = OnDevicePersonalizationFlatbufferUtils.createQueryData(
-                "com.example.test", "AABBCCDD", rows);
+                DbUtils.toTableValue(service),
+                "AABBCCDD", rows);
         EventsDao.getInstanceForTest(mContext).insertQuery(
-                new Query.Builder().setServiceName(mContext.getPackageName()).setQueryData(
+                new Query.Builder().setService(service).setQueryData(
                         queryDataBytes).build());
         EventsDao.getInstanceForTest(mContext);
     }

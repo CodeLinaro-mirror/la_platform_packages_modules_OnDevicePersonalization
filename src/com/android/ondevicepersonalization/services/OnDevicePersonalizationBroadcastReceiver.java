@@ -18,6 +18,7 @@ package com.android.ondevicepersonalization.services;
 
 import static android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
 
+import android.adservices.ondevicepersonalization.Constants;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -39,6 +40,7 @@ import com.android.ondevicepersonalization.services.maintenance.OnDevicePersonal
 import com.android.ondevicepersonalization.services.policyengine.api.ChronicleManager;
 import com.android.ondevicepersonalization.services.policyengine.data.impl.UserDataConnectionProvider;
 import com.android.ondevicepersonalization.services.policyengine.policy.DataIngressPolicy;
+import com.android.ondevicepersonalization.services.util.DeviceUtils;
 
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -52,7 +54,6 @@ public class OnDevicePersonalizationBroadcastReceiver extends BroadcastReceiver 
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
     private static final String TAG = "OnDevicePersonalizationBroadcastReceiver";
     private static final String PERSONALIZATION_STATUS_KEY = "PERSONALIZATION_STATUS";
-    private static final int KEY_NOT_FOUND_ERROR = 404;
     private final Executor mExecutor;
 
     public OnDevicePersonalizationBroadcastReceiver() {
@@ -87,6 +88,11 @@ public class OnDevicePersonalizationBroadcastReceiver extends BroadcastReceiver 
             return;
         }
 
+        if (!DeviceUtils.isOdpSupported(context)) {
+            sLogger.d(TAG + ": Unsupported device, skipped broadcast.");
+            return;
+        }
+
         sLogger.d(TAG + ": onReceive() with intent + " + intent.getAction());
 
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
@@ -115,7 +121,7 @@ public class OnDevicePersonalizationBroadcastReceiver extends BroadcastReceiver 
 
                                     @Override
                                     public void onError(int errorCode) {
-                                        if (errorCode == KEY_NOT_FOUND_ERROR) {
+                                        if (errorCode == Constants.STATUS_KEY_NOT_FOUND) {
                                             sLogger.d(
                                                     TAG
                                                             + ": Personalization status "

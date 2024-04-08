@@ -19,48 +19,48 @@ package com.android.ondevicepersonalization.services.data.user;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
+
 @RunWith(JUnit4.class)
 public final class UserPrivacyStatusTest {
     private UserPrivacyStatus mUserPrivacyStatus;
 
     @Before
-    public void setup() {
+    public void setup() throws Exception {
+        PhFlagsTestUtil.setUpDeviceConfigPermissions();
+        PhFlagsTestUtil.disableGlobalKillSwitch();
+        PhFlagsTestUtil.disablePersonalizationStatusOverride();
         mUserPrivacyStatus = UserPrivacyStatus.getInstance();
     }
 
     @Test
-    public void testUpdateUserConsent() {
-        mUserPrivacyStatus.updateUserConsentCache(true, true);
-        UserPrivacyStatus userPrivacyStatus = UserPrivacyStatus.getInstance();
-        assertTrue(userPrivacyStatus.isProtectedAudienceEnabled());
-        assertTrue(userPrivacyStatus.isMeasurementEnabled());
+    public void testEmptyUserControlCache() {
+        assertFalse(mUserPrivacyStatus.isUserControlCacheValid());
     }
 
     @Test
-    public void testEmptyUserConsentCache() {
-        assertFalse(mUserPrivacyStatus.isUserConsentCacheValid());
+    public void testUpdateControlWithValidCache() {
+        mUserPrivacyStatus.updateUserControlCache(true, true);
+        assertTrue(mUserPrivacyStatus.isUserControlCacheValid());
+        assertTrue(mUserPrivacyStatus.isProtectedAudienceEnabled());
+        assertTrue(mUserPrivacyStatus.isMeasurementEnabled());
     }
 
     @Test
-    public void testValidUserConsentCache() {
-        mUserPrivacyStatus.updateUserConsentCache(false, false);
-        assertTrue(mUserPrivacyStatus.isUserConsentCacheValid());
-    }
-
-    @Test
-    public void testExpiredUserConsentCache() {
-        mUserPrivacyStatus.invalidateUserConsentCacheForTesting();
-        assertFalse(mUserPrivacyStatus.isUserConsentCacheValid());
+    public void testExpiredUserControlCache() {
+        mUserPrivacyStatus.invalidateUserControlCacheForTesting();
+        assertFalse(mUserPrivacyStatus.isUserControlCacheValid());
     }
 
     @After
     public void tearDown() {
-        mUserPrivacyStatus.resetUserConsentForTesting();
+        mUserPrivacyStatus.resetUserControlForTesting();
     }
 }

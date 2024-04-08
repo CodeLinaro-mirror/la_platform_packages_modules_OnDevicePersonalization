@@ -38,11 +38,12 @@ import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecu
 import com.android.ondevicepersonalization.services.data.DataAccessServiceImpl;
 import com.android.ondevicepersonalization.services.data.events.EventState;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
+import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.manifest.AppManifestConfigHelper;
 import com.android.ondevicepersonalization.services.policyengine.UserDataAccessor;
 import com.android.ondevicepersonalization.services.process.IsolatedServiceInfo;
+import com.android.ondevicepersonalization.services.process.PluginProcessRunner;
 import com.android.ondevicepersonalization.services.process.ProcessRunner;
-import com.android.ondevicepersonalization.services.process.ProcessRunnerImpl;
 import com.android.ondevicepersonalization.services.process.SharedIsolatedProcessRunner;
 import com.android.ondevicepersonalization.services.util.Clock;
 import com.android.ondevicepersonalization.services.util.MonotonicClock;
@@ -81,15 +82,15 @@ public final class OdpExampleStoreService extends ExampleStoreService {
         ProcessRunner getProcessRunner() {
             return FlagsFactory.getFlags().isSharedIsolatedProcessFeatureEnabled()
                     ? SharedIsolatedProcessRunner.getInstance()
-                    : ProcessRunnerImpl.getInstance();
+                    : PluginProcessRunner.getInstance();
         }
     }
 
     private final Injector mInjector = new Injector();
 
     /** Generates a unique task identifier from the given strings */
-    public static String getTaskIdentifier(String populationName, String taskName) {
-        return populationName + "_" + taskName;
+    public static String getTaskIdentifier(String populationName, String taskId) {
+        return populationName + "_" + taskId;
     }
 
     @Override
@@ -103,16 +104,28 @@ public final class OdpExampleStoreService extends ExampleStoreService {
             String ownerClassName = contextData.getClassName();
             String populationName =
                     Objects.requireNonNull(params.getString(ClientConstants.EXTRA_POPULATION_NAME));
-            String taskName =
-                    Objects.requireNonNull(params.getString(ClientConstants.EXTRA_TASK_NAME));
+            String taskId = Objects.requireNonNull(params.getString(ClientConstants.EXTRA_TASK_ID));
 
             EventsDao eventDao = EventsDao.getInstance(getContext());
+
+            boolean privacyStatusEligible = true;
+
+            if (!UserPrivacyStatus.getInstance().isPersonalizationStatusEnabled()) {
+                privacyStatusEligible = false;
+                sLogger.w(TAG + ": Personalization is disabled.");
+            }
+
+            if (!UserPrivacyStatus.getInstance().isMeasurementEnabled()) {
+                privacyStatusEligible = false;
+                sLogger.w(TAG + ": Measurement control is not given.");
+            }
 
             // Cancel job if on longer valid. This is written to the table during scheduling
             // via {@link FederatedComputeServiceImpl} and deleted either during cancel or
             // during maintenance for uninstalled packages.
-            EventState eventStatePopulation = eventDao.getEventState(populationName, packageName);
-            if (eventStatePopulation == null) {
+            ComponentName owner = ComponentName.createRelative(packageName, ownerClassName);
+            EventState eventStatePopulation = eventDao.getEventState(populationName, owner);
+            if (!privacyStatusEligible || eventStatePopulation == null) {
                 sLogger.w("Job was either cancelled or package was uninstalled");
                 // Cancel job.
                 FederatedComputeManager FCManager =
@@ -123,7 +136,7 @@ public final class OdpExampleStoreService extends ExampleStoreService {
                     return;
                 }
                 FCManager.cancel(
-                        ComponentName.createRelative(packageName, ownerClassName),
+                        owner,
                         populationName,
                         OnDevicePersonalizationExecutors.getBackgroundExecutor(),
                         new OutcomeReceiver<Object, Exception>() {
@@ -145,8 +158,7 @@ public final class OdpExampleStoreService extends ExampleStoreService {
 
             // Get resumptionToken
             EventState eventState =
-                    eventDao.getEventState(
-                            getTaskIdentifier(populationName, taskName), packageName);
+                    eventDao.getEventState(getTaskIdentifier(populationName, taskId), owner);
             byte[] resumptionToken = null;
             if (eventState != null) {
                 resumptionToken = eventState.getToken();
@@ -156,7 +168,7 @@ public final class OdpExampleStoreService extends ExampleStoreService {
                     new TrainingExamplesInputParcel.Builder()
                             .setResumptionToken(resumptionToken)
                             .setPopulationName(populationName)
-                            .setTaskName(taskName)
+                            .setTaskName(taskId)
                             .build();
 
             String className =
@@ -236,12 +248,14 @@ public final class OdpExampleStoreService extends ExampleStoreService {
         sLogger.d(TAG + ": executeOnTrainingExamples() started.");
         Bundle serviceParams = new Bundle();
         serviceParams.putParcelable(Constants.EXTRA_INPUT, exampleInput);
+        String serviceClass =
+                AppManifestConfigHelper.getServiceNameFromOdpSettings(getContext(), packageName);
         DataAccessServiceImpl binder =
                 new DataAccessServiceImpl(
-                        packageName,
-                        getContext(), /* includeLocalData */
-                        true,
-                        /* includeEventData */ true);
+                        ComponentName.createRelative(packageName, serviceClass),
+                        getContext(),
+                        /* includeLocalData= */ true,
+                        /* includeEventData= */ true);
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, binder);
         UserDataAccessor userDataAccessor = new UserDataAccessor();
         UserData userData = userDataAccessor.getUserData();
@@ -255,6 +269,7 @@ public final class OdpExampleStoreService extends ExampleStoreService {
                 .transform(
                         val -> {
                             StatsUtils.writeServiceRequestMetrics(
+                                    Constants.API_NAME_SERVICE_ON_TRAINING_EXAMPLE,
                                     val, mInjector.getClock(),
                                     Constants.STATUS_SUCCESS,
                                     isolatedServiceInfo.getStartTimeMillis());
@@ -265,6 +280,7 @@ public final class OdpExampleStoreService extends ExampleStoreService {
                         Exception.class,
                         e -> {
                             StatsUtils.writeServiceRequestMetrics(
+                                    Constants.API_NAME_SERVICE_ON_TRAINING_EXAMPLE,
                                     /* result= */ null, mInjector.getClock(),
                                     Constants.STATUS_INTERNAL_ERROR,
                                     isolatedServiceInfo.getStartTimeMillis());

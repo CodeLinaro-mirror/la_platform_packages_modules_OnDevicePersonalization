@@ -18,6 +18,8 @@ package com.android.ondevicepersonalization.services.display;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -41,7 +43,8 @@ import androidx.annotation.NonNull;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.android.compatibility.common.util.ShellUtils;
-import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.modules.utils.testing.ExtendedMockitoRule;
+import com.android.modules.utils.testing.TestableDeviceConfig;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
 import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
 import com.android.ondevicepersonalization.services.data.OnDevicePersonalizationDbHelper;
@@ -56,13 +59,12 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
-import org.jetbrains.annotations.NotNull;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.mockito.MockitoSession;
 import org.mockito.quality.Strictness;
 
 import java.net.HttpURLConnection;
@@ -82,7 +84,7 @@ public class OdpWebViewClientTests {
     private EventUrlPayload mTestEventPayload;
     private final Query mTestQuery = new Query.Builder()
             .setTimeMillis(1L)
-            .setServiceName("servicePackageName")
+            .setService(ComponentName.createRelative(mContext.getPackageName(), SERVICE_CLASS))
             .setQueryData("query".getBytes(StandardCharsets.UTF_8))
             .build();
     private EventsDao mDao;
@@ -108,6 +110,12 @@ public class OdpWebViewClientTests {
         );
     }
 
+    @Rule
+    public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
+            .addStaticMockFixtures(TestableDeviceConfig::new)
+            .setStrictness(Strictness.LENIENT)
+            .build();
+
     @Before
     public void setup() throws Exception {
         mDbHelper = OnDevicePersonalizationDbHelper.getInstanceForTest(mContext);
@@ -117,11 +125,8 @@ public class OdpWebViewClientTests {
         mLatch = new CountDownLatch(1);
 
         PhFlagsTestUtil.setUpDeviceConfigPermissions();
+        PhFlagsTestUtil.setSharedIsolatedProcessFeatureEnabled(mIsSipFeatureEnabled);
         ShellUtils.runShellCommand("settings put global hidden_api_policy 1");
-        ShellUtils.runShellCommand(
-                "device_config put on_device_personalization "
-                        + "shared_isolated_process_feature_enabled "
-                        + mIsSipFeatureEnabled);
 
         CountDownLatch latch = new CountDownLatch(1);
         OnDevicePersonalizationExecutors.getHandlerForMainThread().postAtFrontOfQueue(() -> {
@@ -138,7 +143,7 @@ public class OdpWebViewClientTests {
             }
 
             @Override
-            public void onFailure(@NotNull Throwable t) {
+            public void onFailure(@NonNull Throwable t) {
                 mCallbackFailure = true;
                 mLatch.countDown();
             }
@@ -250,18 +255,13 @@ public class OdpWebViewClientTests {
     }
 
     @Test
-    public void testInvalidUrl() throws Exception {
+    public void testNonOdpUrl() throws Exception {
         WebViewClient webViewClient = getWebViewClient();
         WebResourceRequest webResourceRequest = new OdpWebResourceRequest(
                 Uri.parse("https://www.google.com"));
 
-        assertTrue(webViewClient.shouldOverrideUrlLoading(mWebView, webResourceRequest));
-        mLatch.await();
-
-        assertTrue(mCallbackFailure);
-        assertEquals(0,
-                mDbHelper.getReadableDatabase().query(EventsContract.EventsEntry.TABLE_NAME, null,
-                        null, null, null, null, null).getCount());
+        assertNull(webViewClient.shouldInterceptRequest(mWebView, webResourceRequest));
+        assertFalse(webViewClient.shouldOverrideUrlLoading(mWebView, webResourceRequest));
     }
 
     @Test
@@ -271,19 +271,12 @@ public class OdpWebViewClientTests {
                 ComponentName.createRelative(mContext.getPackageName(), SERVICE_CLASS), 0,
                 new RequestLogRecord.Builder().build());
 
-        // Mock context for default injector tests.
-        MockitoSession session = ExtendedMockito.mockitoSession().strictness(
-                Strictness.LENIENT).startMocking();
-        try {
-            Context mockContext = mock(Context.class);
-            OdpWebViewClient.Injector injector = new OdpWebViewClient.Injector();
-            injector.openUrl("https://google.com", mockContext);
-            assertEquals(injector.getExecutor(),
-                    OnDevicePersonalizationExecutors.getBackgroundExecutor());
-            verify(mockContext, times(1)).startActivity(any());
-        } finally {
-            session.finishMocking();
-        }
+        Context mockContext = mock(Context.class);
+        OdpWebViewClient.Injector injector = new OdpWebViewClient.Injector();
+        injector.openUrl("https://google.com", mockContext);
+        assertEquals(injector.getExecutor(),
+                OnDevicePersonalizationExecutors.getBackgroundExecutor());
+        verify(mockContext, times(1)).startActivity(any());
     }
 
     class TestInjector extends OdpWebViewClient.Injector {

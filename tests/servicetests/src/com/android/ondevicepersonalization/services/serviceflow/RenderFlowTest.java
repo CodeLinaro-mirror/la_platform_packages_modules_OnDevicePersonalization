@@ -24,6 +24,7 @@ import android.adservices.ondevicepersonalization.Constants;
 import android.adservices.ondevicepersonalization.RenderingConfig;
 import android.adservices.ondevicepersonalization.RequestLogRecord;
 import android.adservices.ondevicepersonalization.aidl.IRequestSurfacePackageCallback;
+import android.content.ComponentName;
 import android.content.ContentValues;
 import android.content.Context;
 import android.os.Binder;
@@ -34,7 +35,10 @@ import androidx.test.core.app.ApplicationProvider;
 
 import com.android.compatibility.common.util.ShellUtils;
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
+import com.android.modules.utils.testing.ExtendedMockitoRule;
+import com.android.modules.utils.testing.TestableDeviceConfig;
 import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
+import com.android.ondevicepersonalization.services.data.DbUtils;
 import com.android.ondevicepersonalization.services.data.OnDevicePersonalizationDbHelper;
 import com.android.ondevicepersonalization.services.data.events.EventsDao;
 import com.android.ondevicepersonalization.services.data.events.Query;
@@ -42,16 +46,14 @@ import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.request.SlotWrapper;
 import com.android.ondevicepersonalization.services.util.CryptUtils;
 import com.android.ondevicepersonalization.services.util.OnDevicePersonalizationFlatbufferUtils;
-import com.android.ondevicepersonalization.services.util.PrivacyUtils;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.MockitoSession;
 import org.mockito.quality.Strictness;
 
 import java.util.ArrayList;
@@ -71,8 +73,9 @@ public class RenderFlowTest {
     private boolean mCallbackSuccess;
     private boolean mCallbackError;
     private int mCallbackErrorCode;
+    private int mIsolatedServiceErrorCode;
+    private String mErrorMessage;
     private Bundle mCallbackResult;
-    private MockitoSession mSession;
     private ServiceFlowOrchestrator mSfo;
 
     @Mock UserPrivacyStatus mUserPrivacyStatus;
@@ -90,26 +93,25 @@ public class RenderFlowTest {
         );
     }
 
+    @Rule
+    public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
+            .addStaticMockFixtures(TestableDeviceConfig::new)
+            .spyStatic(UserPrivacyStatus.class)
+            .spyStatic(CryptUtils.class)
+            .setStrictness(Strictness.LENIENT)
+            .build();
+
     @Before
     public void setup() throws Exception {
         PhFlagsTestUtil.setUpDeviceConfigPermissions();
         ShellUtils.runShellCommand("settings put global hidden_api_policy 1");
-        ShellUtils.runShellCommand(
-                "device_config put on_device_personalization "
-                        + "shared_isolated_process_feature_enabled "
-                        + mIsSipFeatureEnabled);
+        PhFlagsTestUtil.setSharedIsolatedProcessFeatureEnabled(mIsSipFeatureEnabled);
 
         setUpTestDate();
 
-        MockitoAnnotations.initMocks(this);
-        mSession = ExtendedMockito.mockitoSession()
-                .spyStatic(UserPrivacyStatus.class)
-                .spyStatic(PrivacyUtils.class)
-                .spyStatic(CryptUtils.class)
-                .strictness(Strictness.LENIENT)
-                .startMocking();
-
         ExtendedMockito.doReturn(mUserPrivacyStatus).when(UserPrivacyStatus::getInstance);
+        doReturn(true).when(mUserPrivacyStatus).isPersonalizationStatusEnabled();
+        doReturn(true).when(mUserPrivacyStatus).isProtectedAudienceEnabled();
 
         mSfo = new ServiceFlowOrchestrator();
     }
@@ -119,9 +121,6 @@ public class RenderFlowTest {
         mDbHelper.getWritableDatabase().close();
         mDbHelper.getReadableDatabase().close();
         mDbHelper.close();
-        if (mSession != null) {
-            mSession.finishMocking();
-        }
     }
 
     @Test
@@ -137,9 +136,19 @@ public class RenderFlowTest {
     }
 
     @Test
-    public void testRunRenderFlow_InvalidToken() throws Exception {
-        doReturn(true).when(mUserPrivacyStatus).isPersonalizationStatusEnabled();
+    public void testRenderFlow_TargetingControlRevoked() throws Exception {
+        doReturn(false).when(mUserPrivacyStatus).isProtectedAudienceEnabled();
 
+        mSfo.schedule(ServiceFlowType.RENDER_FLOW, "token", new Binder(), 0,
+                100, 50, new TestRenderFlowCallback(), mContext, 100L);
+        mLatch.await();
+
+        assertTrue(mCallbackError);
+        assertEquals(Constants.STATUS_PERSONALIZATION_DISABLED, mCallbackErrorCode);
+    }
+
+    @Test
+    public void testRunRenderFlow_InvalidToken() throws Exception {
         mSfo.schedule(ServiceFlowType.RENDER_FLOW, "token", new Binder(), 0,
                 100, 50, new TestRenderFlowCallback(), mContext, 100L);
         mLatch.await();
@@ -150,7 +159,6 @@ public class RenderFlowTest {
 
     @Test
     public void testRunRenderFlow_Success() throws Exception {
-        doReturn(true).when(mUserPrivacyStatus).isPersonalizationStatusEnabled();
         ExtendedMockito.doReturn(
                         new SlotWrapper(
                                 new RequestLogRecord.Builder()
@@ -177,10 +185,12 @@ public class RenderFlowTest {
         ContentValues row2 = new ContentValues();
         row2.put("b", 2);
         rows.add(row2);
+        ComponentName service = new ComponentName(
+                mContext.getPackageName(), "com.test.TestPersonalizationService");
         byte[] queryDataBytes = OnDevicePersonalizationFlatbufferUtils.createQueryData(
-                "com.example.test", "AABBCCDD", rows);
+                DbUtils.toTableValue(service), "AABBCCDD", rows);
         EventsDao.getInstanceForTest(mContext).insertQuery(
-                new Query.Builder().setServiceName(mContext.getPackageName()).setQueryData(
+                new Query.Builder().setService(service).setQueryData(
                         queryDataBytes).build());
         EventsDao.getInstanceForTest(mContext);
     }
@@ -190,9 +200,12 @@ public class RenderFlowTest {
             mCallbackSuccess = true;
             mLatch.countDown();
         }
-        @Override public void onError(int errorCode) {
+        @Override public void onError(
+                int errorCode, int isolatedServiceErrorCode, String message) {
             mCallbackError = true;
             mCallbackErrorCode = errorCode;
+            mIsolatedServiceErrorCode = isolatedServiceErrorCode;
+            mErrorMessage = message;
             mLatch.countDown();
         }
     }

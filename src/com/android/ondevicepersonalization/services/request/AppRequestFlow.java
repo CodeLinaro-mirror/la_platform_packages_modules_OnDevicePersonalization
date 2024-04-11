@@ -347,6 +347,7 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
         sLogger.d(TAG + ": logQuery() started.");
         return LogUtils.writeLogRecords(
                 mContext,
+                mCallingPackageName,
                 mService,
                 result.getRequestLogRecord(),
                 result.getEventLogRecords());
@@ -408,10 +409,6 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
         } catch (RemoteException e) {
             responseCode = Constants.STATUS_INTERNAL_ERROR;
             sLogger.w(TAG + ": Callback error", e);
-        } finally {
-            StatsUtils.writeAppRequestMetrics(
-                    Constants.API_NAME_EXECUTE, mInjector.getClock(), responseCode,
-                    mStartTimeMillis);
         }
     }
 
@@ -420,9 +417,6 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             mCallback.onError(errorCode, isolatedServiceErrorCode, null);
         } catch (RemoteException e) {
             sLogger.w(TAG + ": Callback error", e);
-        } finally {
-            StatsUtils.writeAppRequestMetrics(
-                    Constants.API_NAME_EXECUTE, mInjector.getClock(), errorCode, mStartTimeMillis);
         }
     }
 
@@ -431,9 +425,6 @@ public class AppRequestFlow implements ServiceFlow<Bundle> {
             mCallback.onError(errorCode, 0, DebugUtils.getErrorMessage(mContext, t));
         } catch (RemoteException e) {
             sLogger.w(TAG + ": Callback error", e);
-        } finally {
-            StatsUtils.writeAppRequestMetrics(
-                    Constants.API_NAME_EXECUTE, mInjector.getClock(), errorCode, mStartTimeMillis);
         }
     }
 }

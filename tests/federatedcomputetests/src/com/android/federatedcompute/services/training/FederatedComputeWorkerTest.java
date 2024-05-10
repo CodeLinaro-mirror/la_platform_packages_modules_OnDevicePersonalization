@@ -16,6 +16,8 @@
 
 package com.android.federatedcompute.services.training;
 
+import static android.federatedcompute.common.ClientConstants.STATUS_INTERNAL_ERROR;
+
 import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__ERROR_CODE__CLIENT_PLAN_SPEC_ERROR;
 import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__ERROR_CODE__ISOLATED_TRAINING_PROCESS_ERROR;
 import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__PPAPI_NAME__FEDERATED_COMPUTE;
@@ -24,6 +26,7 @@ import static com.android.federatedcompute.services.stats.FederatedComputeStatsL
 import static com.android.federatedcompute.services.stats.FederatedComputeStatsLog.FEDERATED_COMPUTE_TRAINING_EVENT_REPORTED__KIND__TRAIN_ELIGIBILITY_EVAL_COMPUTATION_ELIGIBLE;
 import static com.android.federatedcompute.services.stats.FederatedComputeStatsLog.FEDERATED_COMPUTE_TRAINING_EVENT_REPORTED__KIND__TRAIN_ELIGIBILITY_EVAL_COMPUTATION_STARTED;
 import static com.android.federatedcompute.services.stats.FederatedComputeStatsLog.FEDERATED_COMPUTE_TRAINING_EVENT_REPORTED__KIND__TRAIN_RUN_COMPLETE;
+import static com.android.federatedcompute.services.testutils.TrainingTestUtil.COLLECTION_URI;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
@@ -60,7 +63,6 @@ import androidx.test.core.app.ApplicationProvider;
 
 import com.android.federatedcompute.services.common.Constants;
 import com.android.federatedcompute.services.common.ExampleStats;
-import com.android.federatedcompute.services.common.MonotonicClock;
 import com.android.federatedcompute.services.common.TrainingEventLogger;
 import com.android.federatedcompute.services.data.FederatedComputeDbHelper;
 import com.android.federatedcompute.services.data.FederatedComputeEncryptionKey;
@@ -92,6 +94,7 @@ import com.android.federatedcompute.services.training.util.TrainingConditionsChe
 import com.android.federatedcompute.services.training.util.TrainingConditionsChecker.Condition;
 import com.android.modules.utils.testing.ExtendedMockitoRule;
 import com.android.modules.utils.testing.ExtendedMockitoRule.MockStatic;
+import com.android.odp.module.common.MonotonicClock;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -106,6 +109,7 @@ import com.google.intelligence.fcp.client.RetryInfo;
 import com.google.intelligence.fcp.client.engine.TaskRetry;
 import com.google.internal.federated.plan.ClientOnlyPlan;
 import com.google.internal.federated.plan.ClientPhase;
+import com.google.internal.federated.plan.ExampleSelector;
 import com.google.internal.federated.plan.TensorflowSpec;
 import com.google.internal.federatedcompute.v1.AuthenticationMetadata;
 import com.google.internal.federatedcompute.v1.KeyAttestationAuthMetadata;
@@ -199,8 +203,6 @@ public final class FederatedComputeWorkerTest {
                                     .setDelayMin(Duration.newBuilder().setSeconds(3600).build())
                                     .build())
                     .build();
-    private static final CheckinResult RETRY_REJECTION_CHECKIN_RESULT =
-            new CheckinResult(RETRY_REJECTION_INFO);
 
     private static final byte[] CHALLENGE =
             ("AHXUDhoSEFikqOefmo8xE7kGp/xjVMRDYBecBiHGxCN8rTv9W0Z4L/14d0OLB"
@@ -339,7 +341,7 @@ public final class FederatedComputeWorkerTest {
     }
 
     @Before
-    public void doBeforeEachTest() throws Exception {
+    public void doBeforeEachTest() {
         mContext = ApplicationProvider.getApplicationContext();
         when(ClientErrorLogger.getInstance()).thenReturn(mMockClientErrorLogger);
         mSpyHttpFederatedProtocol =
@@ -877,6 +879,10 @@ public final class FederatedComputeWorkerTest {
                 TensorflowSpec.newBuilder()
                         .setDatasetTokenTensorName("dataset")
                         .addTargetNodeNames("target")
+                        .setExampleSelector(
+                                ExampleSelector.newBuilder()
+                                        .setCollectionUri(COLLECTION_URI)
+                                        .build())
                         .build();
         ClientOnlyPlan clientOnlyPlan =
                 ClientOnlyPlan.newBuilder()
@@ -1035,6 +1041,9 @@ public final class FederatedComputeWorkerTest {
         @Override
         public void startQuery(Bundle params, IExampleStoreCallback callback)
                 throws RemoteException {
+            if (!params.getString(ClientConstants.EXTRA_COLLECTION_URI).equals(COLLECTION_URI)) {
+                callback.onStartQueryFailure(STATUS_INTERNAL_ERROR);
+            }
             callback.onStartQuerySuccess(
                     new FakeExampleStoreIterator(ImmutableList.of(EXAMPLE_PROTO_1.toByteArray())));
         }

@@ -34,6 +34,7 @@ import com.android.ondevicepersonalization.internal.util.LoggerFactory;
 import com.android.ondevicepersonalization.services.Flags;
 import com.android.ondevicepersonalization.services.FlagsFactory;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
+import com.android.ondevicepersonalization.services.data.DataAccessPermission;
 import com.android.ondevicepersonalization.services.data.DataAccessServiceImpl;
 import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.inference.IsolatedModelServiceProvider;
@@ -127,12 +128,6 @@ public class WebTriggerFlow implements ServiceFlow<WebTriggerOutputParcel> {
                 return false;
             }
 
-            if (!UserPrivacyStatus.getInstance().isPersonalizationStatusEnabled()) {
-                sLogger.d(TAG + ": Personalization is disabled.");
-                sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED);
-                return false;
-            }
-
             if (!UserPrivacyStatus.getInstance().isMeasurementEnabled()) {
                 sLogger.d(TAG + ": User control is not given for measurement.");
                 sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED);
@@ -203,8 +198,8 @@ public class WebTriggerFlow implements ServiceFlow<WebTriggerOutputParcel> {
         serviceParams.putBinder(Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER,
                 new DataAccessServiceImpl(
                     mServiceParcel.getIsolatedService(),
-                    mContext, /* includeLocalData */ true,
-                    /* includeEventData */ true));
+                    mContext, /* localDataPermission */ DataAccessPermission.READ_WRITE,
+                    /* eventDataPermission */ DataAccessPermission.READ_ONLY));
         serviceParams.putParcelable(Constants.EXTRA_USER_DATA,
                 new UserDataAccessor().getUserData());
 

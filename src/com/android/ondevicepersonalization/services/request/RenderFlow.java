@@ -36,6 +36,7 @@ import com.android.ondevicepersonalization.services.Flags;
 import com.android.ondevicepersonalization.services.FlagsFactory;
 import com.android.ondevicepersonalization.services.OdpServiceException;
 import com.android.ondevicepersonalization.services.OnDevicePersonalizationExecutors;
+import com.android.ondevicepersonalization.services.data.DataAccessPermission;
 import com.android.ondevicepersonalization.services.data.DataAccessServiceImpl;
 import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.display.DisplayHelper;
@@ -153,12 +154,6 @@ public class RenderFlow implements ServiceFlow<SurfacePackage> {
         mStartServiceTimeMillis = mInjector.getClock().elapsedRealtime();
 
         try {
-            if (!isPersonalizationStatusEnabled()) {
-                sLogger.d(TAG + ": Personalization is disabled.");
-                sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED, 0);
-                return false;
-            }
-
             if (!UserPrivacyStatus.getInstance().isProtectedAudienceEnabled()) {
                 sLogger.d(TAG + ": User control is not given for targeting.");
                 sendErrorResult(Constants.STATUS_PERSONALIZATION_DISABLED, 0);
@@ -200,8 +195,8 @@ public class RenderFlow implements ServiceFlow<SurfacePackage> {
                         .build());
         serviceParams.putBinder(
                 Constants.EXTRA_DATA_ACCESS_SERVICE_BINDER, new DataAccessServiceImpl(
-                        mService, mContext, /* includeLocalData */ false,
-                        /* includeEventData */ false));
+                        mService, mContext, /* includeLocalData */ DataAccessPermission.DENIED,
+                        /* includeEventData */ DataAccessPermission.DENIED));
 
         return serviceParams;
     }
@@ -330,10 +325,5 @@ public class RenderFlow implements ServiceFlow<SurfacePackage> {
         } catch (RemoteException e) {
             sLogger.w(TAG + ": Callback error", e);
         }
-    }
-
-    private boolean isPersonalizationStatusEnabled() {
-        UserPrivacyStatus privacyStatus = UserPrivacyStatus.getInstance();
-        return privacyStatus.isPersonalizationStatusEnabled();
     }
 }

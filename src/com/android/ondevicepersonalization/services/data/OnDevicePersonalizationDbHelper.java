@@ -16,6 +16,10 @@
 
 package com.android.ondevicepersonalization.services.data;
 
+import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__ERROR_CODE__DATABASE_READ_EXCEPTION;
+import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__ERROR_CODE__DATABASE_WRITE_EXCEPTION;
+import static com.android.adservices.service.stats.AdServicesStatsLog.AD_SERVICES_ERROR_REPORTED__PPAPI_NAME__ODP;
+
 import android.annotation.Nullable;
 import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
@@ -29,6 +33,9 @@ import com.android.ondevicepersonalization.services.data.events.EventsContract;
 import com.android.ondevicepersonalization.services.data.events.QueriesContract;
 import com.android.ondevicepersonalization.services.data.user.UserDataContract;
 import com.android.ondevicepersonalization.services.data.vendor.VendorSettingsContract;
+import com.android.ondevicepersonalization.services.statsd.errorlogging.ClientErrorLogger;
+
+import java.util.List;
 
 /** Helper to manage the OnDevicePersonalization database. */
 public class OnDevicePersonalizationDbHelper extends SQLiteOpenHelper {
@@ -36,7 +43,7 @@ public class OnDevicePersonalizationDbHelper extends SQLiteOpenHelper {
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
     private static final String TAG = "OnDevicePersonalizationDbHelper";
 
-    public static final int DATABASE_VERSION = 4;
+    public static final int DATABASE_VERSION = 5;
     private static final String DATABASE_NAME = "ondevicepersonalization.db";
 
     private static volatile OnDevicePersonalizationDbHelper sSingleton = null;
@@ -92,11 +99,22 @@ public class OnDevicePersonalizationDbHelper extends SQLiteOpenHelper {
             execSqlIgnoreError(db, QueriesContract.QueriesEntry.UPGRADE_V1_TO_V2_STATEMENT);
             execSqlIgnoreError(db, QueriesContract.QueriesEntry.UPGRADE_V2_TO_V3_STATEMENT);
             execSqlIgnoreError(db, UserDataContract.AppInstall.CREATE_TABLE_STATEMENT);
+            execSqlIgnoreError(db, EventsContract.EventsEntry.UPGRADE_V4_TO_V5_STATEMENTS);
         } else if (oldVersion == 2) {
             execSqlIgnoreError(db, QueriesContract.QueriesEntry.UPGRADE_V2_TO_V3_STATEMENT);
             execSqlIgnoreError(db, UserDataContract.AppInstall.CREATE_TABLE_STATEMENT);
+            execSqlIgnoreError(db, EventsContract.EventsEntry.UPGRADE_V4_TO_V5_STATEMENTS);
         } else if (oldVersion == 3) {
             execSqlIgnoreError(db, UserDataContract.AppInstall.CREATE_TABLE_STATEMENT);
+            execSqlIgnoreError(db, EventsContract.EventsEntry.UPGRADE_V4_TO_V5_STATEMENTS);
+        } else if (oldVersion == 4) {
+            execSqlIgnoreError(db, EventsContract.EventsEntry.UPGRADE_V4_TO_V5_STATEMENTS);
+        }
+    }
+
+    private void execSqlIgnoreError(SQLiteDatabase db, List<String> sqls) {
+        for (String sql : sqls) {
+            execSqlIgnoreError(db, sql);
         }
     }
 
@@ -129,8 +147,12 @@ public class OnDevicePersonalizationDbHelper extends SQLiteOpenHelper {
         try {
             return super.getWritableDatabase();
         } catch (SQLiteException e) {
-            // TODO(b/337481657): add CEL for database exception.
             sLogger.e(e, TAG + ": Failed to get a writeable database");
+            ClientErrorLogger.getInstance()
+                    .logErrorWithExceptionInfo(
+                            e,
+                            AD_SERVICES_ERROR_REPORTED__ERROR_CODE__DATABASE_WRITE_EXCEPTION,
+                            AD_SERVICES_ERROR_REPORTED__PPAPI_NAME__ODP);
             return null;
         }
     }
@@ -141,8 +163,12 @@ public class OnDevicePersonalizationDbHelper extends SQLiteOpenHelper {
         try {
             return super.getReadableDatabase();
         } catch (SQLiteException e) {
-            // TODO(b/337481657): add CEL for database exception.
             sLogger.e(e, TAG + ": Failed to get a readable database");
+            ClientErrorLogger.getInstance()
+                    .logErrorWithExceptionInfo(
+                            e,
+                            AD_SERVICES_ERROR_REPORTED__ERROR_CODE__DATABASE_READ_EXCEPTION,
+                            AD_SERVICES_ERROR_REPORTED__PPAPI_NAME__ODP);
             return null;
         }
     }

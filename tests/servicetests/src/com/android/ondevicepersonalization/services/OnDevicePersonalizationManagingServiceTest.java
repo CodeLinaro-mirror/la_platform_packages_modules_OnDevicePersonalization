@@ -18,12 +18,19 @@ package com.android.ondevicepersonalization.services;
 
 import static android.adservices.ondevicepersonalization.OnDevicePersonalizationPermissions.NOTIFY_MEASUREMENT_EVENT;
 
+import static com.android.adservices.shared.spe.JobServiceConstants.SCHEDULING_RESULT_CODE_SUCCESSFUL;
+
+import static com.google.common.util.concurrent.Futures.immediateVoidFuture;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.adservices.ondevicepersonalization.CallerMetadata;
@@ -50,7 +57,12 @@ import com.android.modules.utils.testing.TestableDeviceConfig;
 import com.android.odp.module.common.DeviceUtils;
 import com.android.ondevicepersonalization.internal.util.ByteArrayParceledSlice;
 import com.android.ondevicepersonalization.internal.util.PersistableBundleUtils;
+import com.android.ondevicepersonalization.services.data.user.UserDataCollectionJobService;
 import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
+import com.android.ondevicepersonalization.services.download.mdd.MobileDataDownloadFactory;
+import com.android.ondevicepersonalization.services.maintenance.OnDevicePersonalizationMaintenanceJobService;
+
+import com.google.android.libraries.mobiledatadownload.MobileDataDownload;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -73,11 +85,15 @@ public class OnDevicePersonalizationManagingServiceTest {
 
     @Mock
     private UserPrivacyStatus mUserPrivacyStatus;
+    @Mock private MobileDataDownload mMockMdd;
     @Rule
     public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
             .addStaticMockFixtures(TestableDeviceConfig::new)
             .spyStatic(UserPrivacyStatus.class)
             .spyStatic(DeviceUtils.class)
+            .spyStatic(OnDevicePersonalizationMaintenanceJobService.class)
+            .spyStatic(UserDataCollectionJobService.class)
+            .spyStatic(MobileDataDownloadFactory.class)
             .setStrictness(Strictness.LENIENT)
             .build();
 
@@ -89,10 +105,20 @@ public class OnDevicePersonalizationManagingServiceTest {
         ExtendedMockito.doReturn(mUserPrivacyStatus).when(UserPrivacyStatus::getInstance);
         doReturn(true).when(mUserPrivacyStatus).isMeasurementEnabled();
         doReturn(true).when(mUserPrivacyStatus).isProtectedAudienceEnabled();
-        //mService = new OnDevicePersonalizationManagingServiceDelegate(mContext);
+        // mService = new OnDevicePersonalizationManagingServiceDelegate(mContext);
         when(mContext.checkCallingPermission(NOTIFY_MEASUREMENT_EVENT))
                 .thenReturn(PackageManager.PERMISSION_GRANTED);
+
+        ExtendedMockito.doReturn(SCHEDULING_RESULT_CODE_SUCCESSFUL)
+                .when(
+                        () ->
+                                OnDevicePersonalizationMaintenanceJobService.schedule(
+                                        any(), anyBoolean()));
+        ExtendedMockito.doReturn(1).when(() -> UserDataCollectionJobService.schedule(any()));
+        ExtendedMockito.doReturn(mMockMdd).when(() -> MobileDataDownloadFactory.getMdd(any()));
+        doReturn(immediateVoidFuture()).when(mMockMdd).schedulePeriodicBackgroundTasks();
     }
+
     @Test
     public void testVersion() throws Exception {
         assertEquals(mService.getVersion(), "1.0");
@@ -547,6 +573,21 @@ public class OnDevicePersonalizationManagingServiceTest {
         assertTrue(binder instanceof OnDevicePersonalizationManagingServiceDelegate);
     }
 
+    @Test
+    public void testJobRestoring() {
+        OnDevicePersonalizationManagingServiceImpl service =
+                new OnDevicePersonalizationManagingServiceImpl(Runnable::run);
+        service.onCreate();
+        Intent serviceIntent =
+                new Intent(mContext, OnDevicePersonalizationManagingServiceImpl.class);
+        IBinder binder = service.onBind(serviceIntent);
+        assertTrue(binder instanceof OnDevicePersonalizationManagingServiceDelegate);
+        ExtendedMockito.verify(
+                () -> OnDevicePersonalizationMaintenanceJobService.schedule(any(), anyBoolean()));
+        ExtendedMockito.verify(() -> UserDataCollectionJobService.schedule(any()), times(1));
+        verify(mMockMdd).schedulePeriodicBackgroundTasks();
+    }
+
     private Bundle createWrappedAppParams() throws Exception {
         Bundle wrappedParams = new Bundle();
         ByteArrayParceledSlice buffer = new ByteArrayParceledSlice(
@@ -554,7 +595,6 @@ public class OnDevicePersonalizationManagingServiceTest {
         wrappedParams.putParcelable(Constants.EXTRA_APP_PARAMS_SERIALIZED, buffer);
         return wrappedParams;
     }
-
 
     static class ExecuteCallback extends IExecuteCallback.Stub {
         public boolean mWasInvoked = false;

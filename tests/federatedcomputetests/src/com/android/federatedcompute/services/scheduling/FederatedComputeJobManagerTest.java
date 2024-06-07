@@ -19,6 +19,7 @@ package com.android.federatedcompute.services.scheduling;
 import static android.federatedcompute.common.ClientConstants.STATUS_INTERNAL_ERROR;
 import static android.federatedcompute.common.ClientConstants.STATUS_SUCCESS;
 
+import static com.android.federatedcompute.services.common.Flags.FCP_RECURRENT_RESCHEDULE_LIMIT;
 import static com.android.federatedcompute.services.common.Flags.FCP_RESCHEDULE_LIMIT;
 
 import static com.google.common.truth.Truth.assertThat;
@@ -40,7 +41,6 @@ import android.federatedcompute.common.TrainingOptions;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.android.federatedcompute.services.common.Flags;
-import com.android.federatedcompute.services.common.PackageUtils;
 import com.android.federatedcompute.services.data.FederatedComputeDbHelper;
 import com.android.federatedcompute.services.data.FederatedTrainingTask;
 import com.android.federatedcompute.services.data.FederatedTrainingTaskDao;
@@ -50,6 +50,7 @@ import com.android.federatedcompute.services.data.fbs.SchedulingReason;
 import com.android.federatedcompute.services.data.fbs.TrainingConstraints;
 import com.android.federatedcompute.services.data.fbs.TrainingIntervalOptions;
 import com.android.odp.module.common.Clock;
+import com.android.odp.module.common.PackageUtils;
 
 import com.google.common.collect.Iterables;
 import com.google.flatbuffers.FlatBufferBuilder;
@@ -164,6 +165,8 @@ public final class FederatedComputeJobManagerTest {
                 .thenReturn(JOB_ID1)
                 .thenReturn(JOB_ID2);
         when(mMockFlags.getFcpRescheduleLimit()).thenReturn(FCP_RESCHEDULE_LIMIT);
+        when(mMockFlags.getFcpRecurrentRescheduleLimit())
+                .thenReturn(FCP_RECURRENT_RESCHEDULE_LIMIT);
     }
 
     @After
@@ -1128,6 +1131,54 @@ public final class FederatedComputeJobManagerTest {
     @Test
     public void testRescheduleFLTask_didnotRescheduleDueToScheduleLimit() throws Exception {
         when(mMockFlags.getFcpRescheduleLimit()).thenReturn(1);
+        long userDefinedIntervalMillis = 3000_000;
+        TrainingOptions trainerOptions =
+                basicFLOptionsBuilder(POPULATION_NAME1)
+                        .setTrainingInterval(
+                                new TrainingInterval.Builder()
+                                        .setSchedulingMode(
+                                                TrainingInterval.SCHEDULING_MODE_ONE_TIME)
+                                        .setMinimumIntervalMillis(userDefinedIntervalMillis)
+                                        .build())
+                        .build();
+        long nowMillis = 1000;
+        when(mClock.currentTimeMillis()).thenReturn(nowMillis);
+        mJobManager.onTrainerStartCalled(CALLING_PACKAGE_NAME, trainerOptions);
+        nowMillis = 2000;
+        when(mClock.currentTimeMillis()).thenReturn(nowMillis);
+        mJobManager.onTrainingStarted(JOB_ID1);
+        nowMillis = 3000;
+        byte[] intervalOptions =
+                createTrainingIntervalOptions(SchedulingMode.ONE_TIME, userDefinedIntervalMillis);
+        when(mClock.currentTimeMillis()).thenReturn(nowMillis);
+
+        mJobManager.onTrainingCompleted(
+                JOB_ID1,
+                POPULATION_NAME1,
+                TrainingIntervalOptions.getRootAsTrainingIntervalOptions(
+                        ByteBuffer.wrap(intervalOptions)),
+                null,
+                ContributionResult.FAIL,
+                true);
+        // "complete" FCP task 2nd time so the reschedule limit of "1" will trigger.
+        mJobManager.onTrainingCompleted(
+                JOB_ID1,
+                POPULATION_NAME1,
+                TrainingIntervalOptions.getRootAsTrainingIntervalOptions(
+                        ByteBuffer.wrap(intervalOptions)),
+                null,
+                ContributionResult.FAIL,
+                true);
+
+        assertThat(mTrainingTaskDao.getFederatedTrainingTask(null, null)).isEmpty();
+        assertThat(mJobScheduler.getAllPendingJobs()).isEmpty();
+    }
+
+    @Test
+    public void testRescheduleFLTask_recurrent_didnotRescheduleDueToScheduleLimit()
+            throws Exception {
+        when(mMockFlags.getFcpRescheduleLimit()).thenReturn(2);
+        when(mMockFlags.getFcpRecurrentRescheduleLimit()).thenReturn(1);
         long userDefinedIntervalMillis = 3000_000;
         TrainingOptions trainerOptions =
                 basicFLOptionsBuilder(POPULATION_NAME1)

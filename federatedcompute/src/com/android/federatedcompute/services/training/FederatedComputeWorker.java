@@ -34,6 +34,7 @@ import static com.android.federatedcompute.services.stats.FederatedComputeStatsL
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.ComponentName;
 import android.content.Context;
 import android.federatedcompute.aidl.IExampleStoreIterator;
 import android.federatedcompute.aidl.IExampleStoreService;
@@ -53,7 +54,6 @@ import com.android.federatedcompute.services.common.ExampleStats;
 import com.android.federatedcompute.services.common.FileUtils;
 import com.android.federatedcompute.services.common.Flags;
 import com.android.federatedcompute.services.common.FlagsFactory;
-import com.android.federatedcompute.services.common.PackageUtils;
 import com.android.federatedcompute.services.common.TrainingEventLogger;
 import com.android.federatedcompute.services.data.FederatedComputeEncryptionKey;
 import com.android.federatedcompute.services.data.FederatedTrainingTask;
@@ -79,6 +79,7 @@ import com.android.federatedcompute.services.training.util.TrainingConditionsChe
 import com.android.federatedcompute.services.training.util.TrainingConditionsChecker.Condition;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+import com.android.odp.module.common.PackageUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.FluentFuture;
@@ -241,6 +242,10 @@ public class FederatedComputeWorker {
             return null;
         }
         trainingEventLogger.setPopulationName(trainingTask.populationName());
+        String taskCallingPackageName = trainingTask.ownerPackageName();
+        if (taskCallingPackageName != null) {
+            trainingEventLogger.setSdkPackageName(taskCallingPackageName);
+        }
         if (!checkTrainingConditions(trainingTask.getTrainingConstraints())) {
             trainingEventLogger.logTaskNotStarted();
             performFinishRoutines(
@@ -291,7 +296,12 @@ public class FederatedComputeWorker {
             // (UNAUTHENTICATED). The second would not allow 401 (UNAUTHENTICATED).
             AuthorizationContext authContext =
                     mInjector.createAuthContext(
-                            mContext, run.mTask.ownerId(), run.mTask.ownerIdCertDigest());
+                            mContext,
+                            ComponentName.createRelative(
+                                            run.mTask.ownerPackageName(),
+                                            run.mTask.ownerClassName())
+                                    .flattenToString(),
+                            run.mTask.ownerIdCertDigest());
             return FluentFuture.from(mHttpFederatedProtocol.createTaskAssignment(authContext))
                     .transformAsync(
                             taskAssignmentResponse -> {
@@ -405,7 +415,12 @@ public class FederatedComputeWorker {
                                         .build(),
                                 null),
                         AuthorizationContext.create(
-                                mContext, run.mTask.ownerId(), run.mTask.ownerIdCertDigest()),
+                                mContext,
+                                ComponentName.createRelative(
+                                                run.mTask.ownerPackageName(),
+                                                run.mTask.ownerClassName())
+                                        .flattenToString(),
+                                run.mTask.ownerIdCertDigest()),
                         run.mTrainingEventLogger);
                 // Reschedule the job.
                 performFinishRoutines(
@@ -414,7 +429,8 @@ public class FederatedComputeWorker {
                         run.mTask.jobId(),
                         run.mTask.populationName(),
                         run.mTask.getTrainingIntervalOptions(),
-                        /* taskRetry= */ null);
+                        /* taskRetry= */ null,
+                        /* enableFailuresTracking= */ false);
                 return Futures.immediateFuture(null);
             }
         } else {
@@ -503,6 +519,11 @@ public class FederatedComputeWorker {
         ListenableFuture<ComputationResult> computationResultAndCallbackFuture =
                 CallbackToFutureAdapter.getFuture(
                         completer -> {
+                            String ownerId =
+                                    ComponentName.createRelative(
+                                                    run.mTask.ownerPackageName(),
+                                                    run.mTask.ownerClassName())
+                                            .flattenToString();
                             Futures.addCallback(
                                     computationResultFuture,
                                     new ReportFailureToServerCallback(run.mTrainingEventLogger)
@@ -510,7 +531,7 @@ public class FederatedComputeWorker {
                                                     completer,
                                                     AuthorizationContext.create(
                                                             mContext,
-                                                            run.mTask.ownerId(),
+                                                            ownerId,
                                                             run.mTask.ownerIdCertDigest())),
                                     getLightweightExecutor());
                             return "Report computation result failure to the server.";
@@ -520,15 +541,19 @@ public class FederatedComputeWorker {
         ListenableFuture<RejectionInfo> reportToServerFuture =
                 Futures.transformAsync(
                         computationResultAndCallbackFuture,
-                        result ->
-                                reportResultWithAuthentication(
-                                        result,
-                                        encryptionKey,
-                                        mInjector.createAuthContext(
-                                                mContext,
-                                                run.mTask.ownerId(),
-                                                run.mTask.ownerIdCertDigest()),
-                                        run.mTrainingEventLogger),
+                        result -> {
+                            String ownerId =
+                                    ComponentName.createRelative(
+                                                    run.mTask.ownerPackageName(),
+                                                    run.mTask.ownerClassName())
+                                            .flattenToString();
+                            return reportResultWithAuthentication(
+                                    result,
+                                    encryptionKey,
+                                    mInjector.createAuthContext(
+                                            mContext, ownerId, run.mTask.ownerIdCertDigest()),
+                                    run.mTrainingEventLogger);
+                        },
                         getLightweightExecutor());
 
         return Futures.whenAllSucceed(reportToServerFuture, computationResultAndCallbackFuture)
@@ -562,7 +587,8 @@ public class FederatedComputeWorker {
                                         run.mTask.jobId(),
                                         run.mTask.populationName(),
                                         run.mTask.getTrainingIntervalOptions(),
-                                        buildTaskRetry(reportToServer));
+                                        buildTaskRetry(reportToServer),
+                                        /* enableFailuresTracking= */ false);
                                 return null;
                             }
 
@@ -599,7 +625,12 @@ public class FederatedComputeWorker {
             reportFailureResultToServer(
                     failedComputationResult,
                     AuthorizationContext.create(
-                            mContext, run.mTask.ownerId(), run.mTask.ownerIdCertDigest()),
+                            mContext,
+                            ComponentName.createRelative(
+                                            run.mTask.ownerPackageName(),
+                                            run.mTask.ownerClassName())
+                                    .flattenToString(),
+                            run.mTask.ownerIdCertDigest()),
                     run.mTrainingEventLogger);
         } catch (Exception e) {
             LogUtil.e(TAG, e, "Failed to report failure result to server.");

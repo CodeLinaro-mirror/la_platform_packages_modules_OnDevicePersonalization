@@ -34,6 +34,7 @@ import android.os.PersistableBundle;
 import android.os.RemoteException;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.odp.module.common.PackageUtils;
 import com.android.ondevicepersonalization.internal.util.ByteArrayParceledSlice;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
 import com.android.ondevicepersonalization.internal.util.OdpParceledListSlice;
@@ -50,7 +51,6 @@ import com.android.ondevicepersonalization.services.statsd.ApiCallStats;
 import com.android.ondevicepersonalization.services.statsd.OdpStatsdLogger;
 import com.android.ondevicepersonalization.services.util.IoUtils;
 import com.android.ondevicepersonalization.services.util.OnDevicePersonalizationFlatbufferUtils;
-import com.android.ondevicepersonalization.services.util.PackageUtils;
 
 import com.google.common.util.concurrent.ListeningExecutorService;
 
@@ -276,11 +276,14 @@ public class DataAccessServiceImpl extends IDataAccessService.Stub {
     private void handleLogApiCallStats(
             int apiName, long latencyMillis, int responseCode) {
         try {
-            OdpStatsdLogger.getInstance().logApiCallStats(
-                    new ApiCallStats.Builder(apiName)
-                        .setResponseCode(responseCode)
-                        .setLatencyMillis((int) latencyMillis)
-                        .build());
+            mInjector
+                    .getOdpStatsdLogger()
+                    .logApiCallStats(
+                            new ApiCallStats.Builder(apiName)
+                                    .setResponseCode(responseCode)
+                                    .setLatencyMillis((int) latencyMillis)
+                                    .setSdkPackageName(mService.getPackageName())
+                                    .build());
         } catch (Exception e) {
             sLogger.e(e, TAG + ": error logging api call stats");
         }
@@ -529,6 +532,10 @@ public class DataAccessServiceImpl extends IDataAccessService.Stub {
                 Context context
         ) {
             return EventsDao.getInstance(context);
+        }
+
+        OdpStatsdLogger getOdpStatsdLogger() {
+            return OdpStatsdLogger.getInstance();
         }
     }
 }

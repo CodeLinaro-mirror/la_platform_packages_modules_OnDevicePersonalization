@@ -24,7 +24,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
+import android.adservices.ondevicepersonalization.CalleeMetadata;
 import android.adservices.ondevicepersonalization.Constants;
 import android.adservices.ondevicepersonalization.aidl.IExecuteCallback;
 import android.content.ComponentName;
@@ -38,9 +40,11 @@ import androidx.test.core.app.ApplicationProvider;
 import com.android.compatibility.common.util.ShellUtils;
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
 import com.android.modules.utils.testing.ExtendedMockitoRule;
-import com.android.modules.utils.testing.TestableDeviceConfig;
+import com.android.odp.module.common.PackageUtils;
 import com.android.ondevicepersonalization.internal.util.ByteArrayParceledSlice;
 import com.android.ondevicepersonalization.internal.util.PersistableBundleUtils;
+import com.android.ondevicepersonalization.services.Flags;
+import com.android.ondevicepersonalization.services.FlagsFactory;
 import com.android.ondevicepersonalization.services.PhFlagsTestUtil;
 import com.android.ondevicepersonalization.services.data.DbUtils;
 import com.android.ondevicepersonalization.services.data.OnDevicePersonalizationDbHelper;
@@ -52,7 +56,6 @@ import com.android.ondevicepersonalization.services.data.user.UserPrivacyStatus;
 import com.android.ondevicepersonalization.services.data.vendor.OnDevicePersonalizationVendorDataDao;
 import com.android.ondevicepersonalization.services.data.vendor.VendorData;
 import com.android.ondevicepersonalization.services.util.OnDevicePersonalizationFlatbufferUtils;
-import com.android.ondevicepersonalization.services.util.PackageUtils;
 
 import org.junit.After;
 import org.junit.Before;
@@ -61,6 +64,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.quality.Strictness;
 
 import java.util.ArrayList;
@@ -86,9 +90,12 @@ public class AppRequestFlowTest {
     @Mock
     UserPrivacyStatus mUserPrivacyStatus;
 
+    @Spy
+    private Flags mSpyFlags = spy(FlagsFactory.getFlags());
+
     @Rule
     public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
-            .addStaticMockFixtures(TestableDeviceConfig::new)
+            .mockStatic(FlagsFactory.class)
             .spyStatic(UserPrivacyStatus.class)
             .setStrictness(Strictness.LENIENT)
             .build();
@@ -96,8 +103,9 @@ public class AppRequestFlowTest {
     @Before
     public void setup() throws Exception {
         PhFlagsTestUtil.setUpDeviceConfigPermissions();
+        ExtendedMockito.doReturn(mSpyFlags).when(FlagsFactory::getFlags);
+        when(mSpyFlags.getGlobalKillSwitch()).thenReturn(false);
         ShellUtils.runShellCommand("settings put global hidden_api_policy 1");
-        PhFlagsTestUtil.disableGlobalKillSwitch();
 
         ExtendedMockito.doReturn(mUserPrivacyStatus).when(UserPrivacyStatus::getInstance);
         doReturn(true).when(mUserPrivacyStatus).isMeasurementEnabled();
@@ -123,7 +131,7 @@ public class AppRequestFlowTest {
 
         mSfo.schedule(ServiceFlowType.APP_REQUEST_FLOW, mContext.getPackageName(),
                 new ComponentName(mContext.getPackageName(), "com.test.TestPersonalizationService"),
-                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L);
+                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L, 110L);
         mLatch.await();
         assertTrue(mCallbackSuccess);
         assertFalse(mExecuteCallback.isEmpty());
@@ -138,7 +146,7 @@ public class AppRequestFlowTest {
 
         mSfo.schedule(ServiceFlowType.APP_REQUEST_FLOW, mContext.getPackageName(),
                 new ComponentName(mContext.getPackageName(), "com.test.TestPersonalizationService"),
-                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L);
+                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L, 110L);
         mLatch.await();
         assertTrue(mCallbackSuccess);
         assertTrue(mExecuteCallback.isEmpty());
@@ -146,11 +154,11 @@ public class AppRequestFlowTest {
 
     @Test
     public void testAppRequestFlow_OutputDataBlocked() throws InterruptedException {
-        PhFlagsTestUtil.setOutputDataAllowList("");
+        when(mSpyFlags.getOutputDataAllowList()).thenReturn("");
 
         mSfo.schedule(ServiceFlowType.APP_REQUEST_FLOW, mContext.getPackageName(),
                 new ComponentName(mContext.getPackageName(), "com.test.TestPersonalizationService"),
-                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L);
+                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L, 110L);
         mLatch.await();
 
         assertTrue(mCallbackSuccess);
@@ -161,12 +169,13 @@ public class AppRequestFlowTest {
 
     @Test
     public void testAppRequestFlow_OutputDataAllowed() throws InterruptedException {
-        PhFlagsTestUtil.setOutputDataAllowList(
-                mContext.getPackageName() + ";" + mContext.getPackageName());
+        String contextPackageName = mContext.getPackageName();
+        when(mSpyFlags.getOutputDataAllowList()).thenReturn(
+                contextPackageName + ";" + contextPackageName);
 
         mSfo.schedule(ServiceFlowType.APP_REQUEST_FLOW, mContext.getPackageName(),
                 new ComponentName(mContext.getPackageName(), "com.test.TestPersonalizationService"),
-                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L);
+                createWrappedAppParams(), new TestExecuteCallback(), mContext, 100L, 110L);
         mLatch.await();
 
         assertTrue(mCallbackSuccess);
@@ -232,14 +241,15 @@ public class AppRequestFlowTest {
 
     class TestExecuteCallback extends IExecuteCallback.Stub {
         @Override
-        public void onSuccess(Bundle bundle) {
+        public void onSuccess(Bundle bundle, CalleeMetadata calleeMetadata) {
             mCallbackSuccess = true;
             mExecuteCallback = bundle;
             mLatch.countDown();
         }
 
         @Override
-        public void onError(int errorCode, int isolatedServiceErrorCode, String message) {
+        public void onError(int errorCode, int isolatedServiceErrorCode, String message,
+                CalleeMetadata calleeMetadata) {
             mCallbackError = true;
             mCallbackErrorCode = errorCode;
             mIsolatedServiceErrorCode = isolatedServiceErrorCode;

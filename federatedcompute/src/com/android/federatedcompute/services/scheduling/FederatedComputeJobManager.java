@@ -33,7 +33,6 @@ import android.federatedcompute.common.TrainingOptions;
 
 import com.android.federatedcompute.internal.util.LogUtil;
 import com.android.federatedcompute.services.common.Flags;
-import com.android.federatedcompute.services.common.PackageUtils;
 import com.android.federatedcompute.services.common.PhFlags;
 import com.android.federatedcompute.services.data.FederatedTrainingTask;
 import com.android.federatedcompute.services.data.FederatedTrainingTaskDao;
@@ -45,6 +44,7 @@ import com.android.federatedcompute.services.data.fbs.TrainingIntervalOptions;
 import com.android.internal.util.Preconditions;
 import com.android.odp.module.common.Clock;
 import com.android.odp.module.common.MonotonicClock;
+import com.android.odp.module.common.PackageUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.flatbuffers.FlatBufferBuilder;
@@ -169,7 +169,8 @@ public class FederatedComputeJobManager {
         FederatedTrainingTask existingTask =
                 mFederatedTrainingTaskDao.findAndRemoveTaskByPopulationNameAndOwnerId(
                         trainingOptions.getPopulationName(),
-                        trainingOptions.getOwnerComponentName().flattenToString(),
+                        packageName,
+                        trainingOptions.getOwnerComponentName().getClassName(),
                         ownerCertDigest);
         Set<FederatedTrainingTask> trainingTasksToCancel = new HashSet<>();
         String populationName = trainingOptions.getPopulationName();
@@ -188,13 +189,24 @@ public class FederatedComputeJobManager {
         Preconditions.checkStringNotEmpty(trainingOptions.getServerAddress());
 
         if (existingTask == null) {
+            int taskNumber =
+                    mFederatedTrainingTaskDao.getTotalTrainingTaskPerOwnerPackage(packageName);
+            if (taskNumber >= mFlags.getFcpTaskLimitPerPackage()) {
+                LogUtil.e(
+                        TAG,
+                        "Error while scheduling federatedCompute task. "
+                                + "Too mach tasks already created for %s package.",
+                        packageName);
+                return STATUS_INTERNAL_ERROR;
+            }
             int jobId =
                     mJobIdGenerator.generateJobId(this.mContext, populationName, ownerIdentifier);
             FederatedTrainingTask.Builder newTaskBuilder =
                     FederatedTrainingTask.builder()
                             .appPackageName(callingPackageName)
                             .jobId(jobId)
-                            .ownerId(trainingOptions.getOwnerComponentName().flattenToString())
+                            .ownerPackageName(packageName)
+                            .ownerClassName(trainingOptions.getOwnerComponentName().getClassName())
                             .ownerIdCertDigest(ownerCertDigest)
                             .creationTime(nowMs)
                             .lastScheduledTime(nowMs)
@@ -322,7 +334,10 @@ public class FederatedComputeJobManager {
         }
         FederatedTrainingTask taskToCancel =
                 mFederatedTrainingTaskDao.findAndRemoveTaskByPopulationNameAndOwnerId(
-                        populationName, ownerComponent.flattenToString(), ownerCertDigest);
+                        populationName,
+                        ownerComponent.getPackageName(),
+                        ownerComponent.getClassName(),
+                        ownerCertDigest);
         // If no matching task exists then there's nothing for us to do. This is not an error
         // case though.
         if (taskToCancel == null) {
@@ -460,9 +475,10 @@ public class FederatedComputeJobManager {
                 trainingResult != ContributionResult.SUCCESS
                         ? SchedulingReason.SCHEDULING_REASON_FAILURE
                         : SchedulingReason.SCHEDULING_REASON_FEDERATED_COMPUTATION_RETRY);
-        if (trainingResult == ContributionResult.FAIL && enableFailuresTracking) {
+        if (trainingResult == ContributionResult.FAIL
+                && enableFailuresTracking) {
             int rescheduleCount = existingTask.rescheduleCount() + 1;
-            if (rescheduleCount > mFlags.getFcpRescheduleLimit()) {
+            if (checkRescheduleLimitsExceeded(intervalOptions, rescheduleCount)) {
                 LogUtil.i(
                         TAG,
                         "federated task (id: %d) was not rescheduled due to reschedule limit "
@@ -479,6 +495,20 @@ public class FederatedComputeJobManager {
         FederatedTrainingTask newTask = newTaskBuilder.build();
         mFederatedTrainingTaskDao.updateOrInsertFederatedTrainingTask(newTask);
         return mJobSchedulerHelper.scheduleTask(mContext, newTask);
+    }
+
+    private boolean checkRescheduleLimitsExceeded(
+            TrainingIntervalOptions intervalOptions, int rescheduleCount) {
+        // we treat  absence of interval option as it is one time job
+        if (intervalOptions == null) {
+            return rescheduleCount > mFlags.getFcpRescheduleLimit();
+        } else if (intervalOptions.schedulingMode() == SchedulingMode.RECURRENT) {
+            // recurrent jobs have way higher tolerance level
+            return rescheduleCount > mFlags.getFcpRecurrentRescheduleLimit();
+        } else {
+            // all other cases, basically treated as one time job.
+            return rescheduleCount > mFlags.getFcpRescheduleLimit();
+        }
     }
 
     private boolean detectKeyParametersChanged(

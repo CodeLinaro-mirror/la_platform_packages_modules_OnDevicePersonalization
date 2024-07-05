@@ -32,13 +32,13 @@ import android.content.pm.PackageManager;
 
 import androidx.test.core.app.ApplicationProvider;
 
-import com.android.federatedcompute.services.common.PackageUtils;
 import com.android.federatedcompute.services.data.FederatedComputeDbHelper;
 import com.android.federatedcompute.services.data.FederatedTrainingTask;
 import com.android.federatedcompute.services.data.FederatedTrainingTaskDao;
 import com.android.federatedcompute.services.data.fbs.TrainingConstraints;
 import com.android.odp.module.common.Clock;
 import com.android.odp.module.common.MonotonicClock;
+import com.android.odp.module.common.PackageUtils;
 
 import com.google.flatbuffers.FlatBufferBuilder;
 
@@ -90,7 +90,8 @@ public class FederatedComputeLearningJobScheduleOrchestratorTest {
                 FederatedTrainingTask.builder()
                         .jobId(123)
                         .appPackageName(CALLING_PACKAGE_NAME)
-                        .ownerId(CALLING_PACKAGE_NAME + "/" + CALLING_CLASS_NAME)
+                        .ownerPackageName(CALLING_PACKAGE_NAME)
+                        .ownerClassName(CALLING_CLASS_NAME)
                         .ownerIdCertDigest(
                                 PackageUtils.getCertDigest(mContext, mContext.getPackageName()))
                         .populationName(POPULATION_NAME)
@@ -105,7 +106,8 @@ public class FederatedComputeLearningJobScheduleOrchestratorTest {
                 FederatedTrainingTask.builder()
                         .jobId(213)
                         .appPackageName(CALLING_PACKAGE_NAME)
-                        .ownerId(CALLING_PACKAGE_NAME + "/" + CALLING_CLASS_NAME)
+                        .ownerPackageName(CALLING_PACKAGE_NAME)
+                        .ownerClassName(CALLING_CLASS_NAME)
                         .ownerIdCertDigest(
                                 PackageUtils.getCertDigest(mContext, mContext.getPackageName()))
                         .populationName(POPULATION_NAME)

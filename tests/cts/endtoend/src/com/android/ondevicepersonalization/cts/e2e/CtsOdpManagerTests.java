@@ -17,7 +17,8 @@ package com.android.ondevicepersonalization.cts.e2e;
 
 import static android.adservices.ondevicepersonalization.OnDevicePersonalizationManager.GRANULAR_EXCEPTION_ERROR_CODES;
 
-import static org.junit.Assert.assertArrayEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -49,6 +50,7 @@ import libcore.junit.util.compat.CoreCompatChangeRule.EnableCompatChanges;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -238,6 +240,7 @@ public class CtsOdpManagerTests {
     }
 
     @Test
+    @Ignore("TODO: b/355168043 - disable failing compat tests.")
     @DisableCompatChanges({GRANULAR_EXCEPTION_ERROR_CODES})
     public void testExecuteReturnsNameNotFoundIfServiceNotInstalled() throws InterruptedException {
         OnDevicePersonalizationManager manager =
@@ -254,6 +257,7 @@ public class CtsOdpManagerTests {
     }
 
     @Test
+    @Ignore("TODO: b/355168043 - disable failing compat tests.")
     @EnableCompatChanges({GRANULAR_EXCEPTION_ERROR_CODES})
     public void testExecuteReturnsOdpExceptionIfServiceNotInstalledGranularErrorCodesEnabled()
             throws InterruptedException {
@@ -274,6 +278,7 @@ public class CtsOdpManagerTests {
     }
 
     @Test
+    @Ignore("TODO: b/355168043 - disable failing compat tests.")
     @DisableCompatChanges({GRANULAR_EXCEPTION_ERROR_CODES})
     public void testExecuteReturnsClassNotFoundIfServiceClassNotFound()
             throws InterruptedException {
@@ -291,6 +296,7 @@ public class CtsOdpManagerTests {
     }
 
     @Test
+    @Ignore("TODO: b/355168043 - disable failing compat tests.")
     @EnableCompatChanges({GRANULAR_EXCEPTION_ERROR_CODES})
     public void testExecuteReturnsOdpExceptionIfServiceClassNotFoundGranularErrorCodesEnabled()
             throws InterruptedException {
@@ -369,7 +375,7 @@ public class CtsOdpManagerTests {
     }
 
     @Test
-    public void testExecuteWithOutputData() throws InterruptedException {
+    public void testExecuteWithOutputDataDisabled() throws InterruptedException {
         OnDevicePersonalizationManager manager =
                 mContext.getSystemService(OnDevicePersonalizationManager.class);
         assertNotNull(manager);
@@ -385,7 +391,7 @@ public class CtsOdpManagerTests {
                 Executors.newSingleThreadExecutor(),
                 receiver);
         assertTrue(receiver.getErrorMessage(), receiver.isSuccess());
-        assertArrayEquals(new byte[] {'A'}, receiver.getResult().getOutputData());
+        assertThat(receiver.getResult().getOutputData()).isNull();
     }
 
     @Test

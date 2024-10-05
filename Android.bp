@@ -69,7 +69,7 @@ java_library {
         type: "lite",
     },
     sdk_version: "system_current",
-    min_sdk_version: "33",
+    min_sdk_version: "Tiramisu",
     srcs: ["src/**/*.proto"],
     apex_available: [
         "com.android.ondevicepersonalization",

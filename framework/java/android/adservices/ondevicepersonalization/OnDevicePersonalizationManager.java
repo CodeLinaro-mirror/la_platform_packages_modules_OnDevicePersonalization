@@ -17,11 +17,15 @@
 package android.adservices.ondevicepersonalization;
 
 
+import static java.lang.annotation.RetentionPolicy.SOURCE;
+
 import android.adservices.ondevicepersonalization.aidl.IExecuteCallback;
+import android.adservices.ondevicepersonalization.aidl.IIsFeatureEnabledCallback;
 import android.adservices.ondevicepersonalization.aidl.IOnDevicePersonalizationManagingService;
 import android.adservices.ondevicepersonalization.aidl.IRequestSurfacePackageCallback;
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.ComponentName;
@@ -44,6 +48,7 @@ import com.android.ondevicepersonalization.internal.util.ExceptionInfo;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
 import com.android.ondevicepersonalization.internal.util.PersistableBundleUtils;
 
+import java.lang.annotation.Retention;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
@@ -90,6 +95,18 @@ public class OnDevicePersonalizationManager {
 
     private static final String TAG = OnDevicePersonalizationManager.class.getSimpleName();
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
+
+    /** @hide */
+    @Retention(SOURCE)
+    @IntDef({FEATURE_ENABLED, FEATURE_DISABLED, FEATURE_UNSUPPORTED})
+    public @interface FeatureStatus {}
+    /** @hide */
+    public static final int FEATURE_ENABLED = 0;
+    /** @hide */
+    public static final int FEATURE_DISABLED = 1;
+    /** @hide */
+    public static final int FEATURE_UNSUPPORTED = 2;
+
     private final AbstractServiceBinder<IOnDevicePersonalizationManagingService> mServiceBinder;
     private final Context mContext;
 
@@ -610,6 +627,68 @@ public class OnDevicePersonalizationManager {
                 receiver.onError(e);
             }
 
+        } catch (Exception e) {
+            receiver.onError(e);
+        }
+    }
+
+    /** @hide */
+    @FlaggedApi(Flags.FLAG_IS_FEATURE_ENABLED_API_ENABLED)
+    public void queryFeatureAvailability(
+            @NonNull String featureName,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<Integer, Exception> receiver) {
+
+        Objects.requireNonNull(featureName);
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(receiver);
+
+        long startTimeMillis = SystemClock.elapsedRealtime();
+
+        try {
+            final IOnDevicePersonalizationManagingService service =
+                    Objects.requireNonNull(mServiceBinder.getService(executor));
+
+            try {
+                IIsFeatureEnabledCallback callbackWrapper = new IIsFeatureEnabledCallback.Stub() {
+                    @Override
+                    public void onResult(int result, CalleeMetadata calleeMetadata) {
+                        final long token = Binder.clearCallingIdentity();
+                        try {
+                            executor.execute(
+                                    () -> {
+                                        receiver.onResult(result);
+                                    });
+                        } finally {
+                            Binder.restoreCallingIdentity(token);
+                            logApiCallStats(
+                                    service,
+                                    "",
+                                    Constants.API_NAME_IS_FEATURE_ENABLED,
+                                    SystemClock.elapsedRealtime() - startTimeMillis,
+                                    calleeMetadata.getServiceEntryTimeMillis()
+                                            - startTimeMillis,
+                                    SystemClock.elapsedRealtime()
+                                            - calleeMetadata.getCallbackInvokeTimeMillis(),
+                                    Constants.STATUS_SUCCESS);
+                        }
+                    }
+                };
+                service.isFeatureEnabled(
+                        featureName,
+                        new CallerMetadata.Builder().setStartTimeMillis(startTimeMillis).build(),
+                        callbackWrapper);
+            } catch (Exception e) {
+                logApiCallStats(
+                        service,
+                        "",
+                        Constants.API_NAME_IS_FEATURE_ENABLED,
+                        SystemClock.elapsedRealtime() - startTimeMillis,
+                        0,
+                        0,
+                        Constants.STATUS_INTERNAL_ERROR);
+                receiver.onError(e);
+            }
         } catch (Exception e) {
             receiver.onError(e);
         }

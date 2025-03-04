@@ -83,11 +83,6 @@ public final class OnDevicePersonalizationMaintenanceJob implements JobWorker {
         return JOB_ENABLED_STATUS_ENABLED;
     }
 
-    @Override
-    public BackoffPolicy getBackoffPolicy() {
-        return new BackoffPolicy.Builder().setShouldRetryOnExecutionStop(true).build();
-    }
-
     /** Schedules a unique instance of {@link OnDevicePersonalizationMaintenanceJob}. */
     public static void schedule(Context context) {
         // If SPE is not enabled, force to schedule the job with the old JobService.
@@ -122,7 +117,10 @@ public final class OnDevicePersonalizationMaintenanceJob implements JobWorker {
                         .setIsPersisted(true)
                         .build();
 
-        return new JobSpec.Builder(jobPolicy).build();
+        BackoffPolicy backoffPolicy =
+                new BackoffPolicy.Builder().setShouldRetryOnExecutionStop(true).build();
+
+        return new JobSpec.Builder(jobPolicy).setBackoffPolicy(backoffPolicy).build();
     }
 
     @VisibleForTesting

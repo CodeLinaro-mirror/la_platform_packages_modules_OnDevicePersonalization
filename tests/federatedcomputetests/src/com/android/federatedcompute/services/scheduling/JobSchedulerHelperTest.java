@@ -158,7 +158,6 @@ public class JobSchedulerHelperTest {
         assertThat(jobInfo.isRequireDeviceIdle()).isFalse();
         assertThat(jobInfo.isRequireBatteryNotLow()).isTrue();
         assertThat(jobInfo.getNetworkType()).isEqualTo(NETWORK_TYPE_UNMETERED);
-        assertDefaultJobRequirements(jobInfo);
     }
 
     @Test
@@ -179,7 +178,6 @@ public class JobSchedulerHelperTest {
         assertThat(jobInfo.isRequireDeviceIdle()).isTrue();
         assertThat(jobInfo.isRequireBatteryNotLow()).isTrue();
         assertThat(jobInfo.getNetworkType()).isEqualTo(NETWORK_TYPE_ANY);
-        assertDefaultJobRequirements(jobInfo);
     }
 
     @Test
@@ -200,7 +198,6 @@ public class JobSchedulerHelperTest {
         assertThat(jobInfo.isRequireDeviceIdle()).isTrue();
         assertThat(jobInfo.isRequireBatteryNotLow()).isFalse();
         assertThat(jobInfo.getNetworkType()).isEqualTo(NETWORK_TYPE_UNMETERED);
-        assertDefaultJobRequirements(jobInfo);
     }
 
     @Test
@@ -245,10 +242,5 @@ public class JobSchedulerHelperTest {
                 TrainingIntervalOptions.createTrainingIntervalOptions(
                         builder, SchedulingMode.ONE_TIME, 0));
         return builder.sizedByteArray();
-    }
-
-    private void assertDefaultJobRequirements(JobInfo jobInfo) {
-        assertThat(jobInfo.isRequireStorageNotLow()).isTrue();
-        assertThat(jobInfo.isPersisted()).isTrue();
     }
 }

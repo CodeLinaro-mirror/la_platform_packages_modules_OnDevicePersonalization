@@ -19,6 +19,7 @@ package com.android.ondevicepersonalization.services.data.user;
 import static com.android.adservices.shared.proto.JobPolicy.BatteryType.BATTERY_TYPE_REQUIRE_NOT_LOW;
 import static com.android.adservices.shared.proto.JobPolicy.NetworkType.NETWORK_TYPE_NONE;
 import static com.android.adservices.shared.spe.JobServiceConstants.JOB_ENABLED_STATUS_DISABLED_FOR_KILL_SWITCH_ON;
+import static com.android.adservices.shared.spe.JobServiceConstants.JOB_ENABLED_STATUS_DISABLED_FOR_USER_CONSENT_REVOKED;
 import static com.android.adservices.shared.spe.JobServiceConstants.JOB_ENABLED_STATUS_ENABLED;
 import static com.android.adservices.shared.spe.JobServiceConstants.SCHEDULING_RESULT_CODE_SUCCESSFUL;
 import static com.android.dx.mockito.inline.extended.ExtendedMockito.doReturn;
@@ -147,14 +148,14 @@ public final class UserDataCollectionJobTest {
     @Test
     public void testGetJobEnablementStatus_disabled_noMeasurementNorProtectedAudienceConsent() {
         when(mMockFlags.getGlobalKillSwitch()).thenReturn(false);
-        when(mMockFlags.getAggregatedErrorReportingEnabled()).thenReturn(true);
+        when(mMockFlags.getSpeOnUserDataCollectionJobEnabled()).thenReturn(true);
         when(mMockUserPrivacyStatus
                 .isProtectedAudienceAndMeasurementBothDisabled()).thenReturn(true);
 
         assertWithMessage(
                 "testGetJobEnablementStatus_disabled_noMeasurementNorProtectedAudienceConsent()")
                 .that(mSpyUserDataCollectionJob.getJobEnablementStatus())
-                .isEqualTo(JOB_ENABLED_STATUS_DISABLED_FOR_KILL_SWITCH_ON);
+                .isEqualTo(JOB_ENABLED_STATUS_DISABLED_FOR_USER_CONSENT_REVOKED);
     }
 
     @Test

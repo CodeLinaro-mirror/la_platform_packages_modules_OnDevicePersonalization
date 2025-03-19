@@ -21,6 +21,8 @@ import android.adservices.ondevicepersonalization.EventUrlProvider;
 import android.adservices.ondevicepersonalization.ExecuteInput;
 import android.adservices.ondevicepersonalization.ExecuteOutput;
 import android.adservices.ondevicepersonalization.FederatedComputeInput;
+import android.adservices.ondevicepersonalization.FederatedComputeScheduleRequest;
+import android.adservices.ondevicepersonalization.FederatedComputeScheduleResponse;
 import android.adservices.ondevicepersonalization.FederatedComputeScheduler;
 import android.adservices.ondevicepersonalization.InferenceInput;
 import android.adservices.ondevicepersonalization.InferenceOutput;
@@ -46,16 +48,21 @@ import android.util.Log;
 
 import com.android.ondevicepersonalization.testing.sampleserviceapi.SampleServiceApi;
 
+import com.google.common.util.concurrent.MoreExecutors;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 class SampleWorker implements IsolatedWorker {
     private static final String TAG = "OdpTestingSampleService";
@@ -366,6 +373,7 @@ class SampleWorker implements IsolatedWorker {
             byte[] actualValue = mLocalData.get(key);
             success = Arrays.equals(expectedValue, actualValue);
         } else {
+            // No value in the app params indicates that the key should not exist in local data.
             success = mLocalData.get(key) == null;
         }
 
@@ -376,7 +384,7 @@ class SampleWorker implements IsolatedWorker {
         }
     }
 
-    private ExecuteOutput handleCheckValueLength(PersistableBundle appParams) {
+    private static ExecuteOutput handleCheckValueLength(PersistableBundle appParams) {
         Log.i(TAG, "handleCheckValueLength()");
         String encodedValue = appParams.getString(SampleServiceApi.KEY_BASE64_VALUE);
         byte[] value = (encodedValue != null) ? Base64.decode(encodedValue, 0) : null;
@@ -389,7 +397,7 @@ class SampleWorker implements IsolatedWorker {
         }
     }
 
-    private byte[] expandByteArray(byte[] input, int count) {
+    private static byte[] expandByteArray(byte[] input, int count) {
         byte[] output = new byte[input.length * count];
         for (int i = 0; i < count; ++i) {
             System.arraycopy(input, 0, output, i * input.length, input.length);
@@ -397,7 +405,7 @@ class SampleWorker implements IsolatedWorker {
         return output;
     }
 
-    private RuntimeException createException(PersistableBundle appParams) {
+    private static RuntimeException createException(PersistableBundle appParams) {
         try {
             String exceptionClass =
                     appParams.getString(
@@ -410,7 +418,7 @@ class SampleWorker implements IsolatedWorker {
         }
     }
 
-    private void putObject(ContentValues cv, String key, Object value) {
+    private static void putObject(ContentValues cv, String key, Object value) {
         if (value instanceof String) {
             cv.put(key, (String) value);
         } else if (value instanceof Double) {
@@ -480,8 +488,43 @@ class SampleWorker implements IsolatedWorker {
                         .build();
         FederatedComputeScheduler.Params params = new FederatedComputeScheduler.Params(interval);
 
-        mFcpScheduler.schedule(params, input);
-        return new ExecuteOutput.Builder().build();
+        if (useLegacyScheduleApi) {
+            mFcpScheduler.schedule(params, input);
+            return new ExecuteOutput.Builder().build();
+        }
+
+        // Use new schedule API with outcome-receiver
+        BlockingQueue<Object> asyncResult = new ArrayBlockingQueue<>(1);
+        final Object emptyValue = new Object();
+        FederatedComputeScheduleRequest request =
+                new FederatedComputeScheduleRequest(params, populationName);
+        mFcpScheduler.schedule(
+                request,
+                MoreExecutors.directExecutor(),
+                new OutcomeReceiver<FederatedComputeScheduleResponse, Exception>() {
+                    @Override
+                    public void onResult(FederatedComputeScheduleResponse result) {
+                        Log.e(TAG, "FCP schedule request successful!");
+                        asyncResult.add(result);
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        Log.e(TAG, "FCP schedule request failed: " + e.getMessage());
+                        asyncResult.add(emptyValue);
+                    }
+                });
+
+        // Wait for outcome receiver callback.
+        Object response = null;
+        try {
+            response = asyncResult.poll(SCHEDULE_CALLBACK_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Timed out waiting for schedule request to succeed!");
+        }
+        return (response == null || response == emptyValue)
+                ? null
+                : new ExecuteOutput.Builder().build();
     }
 
     private ExecuteOutput handleCancelFederatedJob(PersistableBundle appParams) {

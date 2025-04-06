@@ -638,7 +638,6 @@ public class CtsOdpManagerTests {
     }
 
     @Test
-    @Ignore ("b/388441484")
     @RequiresFlagsEnabled(Flags.FLAG_FCP_SCHEDULE_WITH_OUTCOME_RECEIVER_ENABLED)
     public void testExecuteWithScheduleFederatedJobWithOutcomeReceiver() throws Exception {
         OnDevicePersonalizationManager manager =
@@ -1288,6 +1287,28 @@ public class CtsOdpManagerTests {
                         manager.queryFeatureAvailability("featureName",
                                 null,
                                 receiver));
+    }
+
+    @Test
+    @RequiresFlagsEnabled(Flags.FLAG_EXECUTE_IN_ISOLATED_SERVICE_API_ENABLED)
+    public void testExecuteNoOutputData() throws InterruptedException {
+        OnDevicePersonalizationManager manager =
+                mContext.getSystemService(OnDevicePersonalizationManager.class);
+        assertNotNull(manager);
+        var receiver = new ResultReceiver<ExecuteResult>();
+        PersistableBundle appParams = new PersistableBundle();
+        appParams.putString(
+                SampleServiceApi.KEY_OPCODE, SampleServiceApi.OPCODE_RETURN_OUTPUT_DATA);
+        appParams.putString(SampleServiceApi.KEY_BASE64_VALUE, TEST_WRITE_DATA);
+
+        manager.execute(
+                new ComponentName(SERVICE_PACKAGE, SERVICE_CLASS),
+                appParams,
+                Executors.newSingleThreadExecutor(),
+                receiver);
+
+        assertTrue(receiver.getErrorMessage(), receiver.isSuccess());
+        assertThat(receiver.getResult().getOutputData()).isNull();
     }
 
     @Test
